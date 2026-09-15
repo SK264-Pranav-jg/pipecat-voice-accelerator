@@ -1,6 +1,19 @@
 # ignore the backend venv
 backend/.venv
-.env
-.vscode
-*/__pycache__/
 
+# environment files
+.env
+
+# editor settings
+.vscode
+
+# Python cache — all levels, all folders
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+
+# uv / pip artifacts
+*.egg-info/
+dist/
+build/
