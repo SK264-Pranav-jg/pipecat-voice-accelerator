@@ -1,0 +1,303 @@
+import os 
+from pathlib import Path 
+import logging
+
+#pipecat imports 
+from pipecat.pipeline.pipeline import Pipeline 
+from pipecat.workers.runner import WorkerRunner 
+from pipecat.pipeline.worker import PipelineParams , PipelineWorker 
+from pipecat.processors.aggregators.llm_context import LLMContext 
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair ,
+    LLMUserAggregatorParams, 
+)
+from pipecat.runner.types import RunnerArguments 
+from pipecat.runner.utils import create_transport 
+from pipecat.transports.base_transport import BaseTransport , TransportParams 
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport , FastAPIWebsocketParams 
+from pipecat.transcriptions.language import Language
+from pipecat.frames.frames import LLMMessagesAppendFrame , TTSSpeakFrame , LLMRunFrame
+
+# rnn filter 
+from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
+
+# pipecat-vobiz import 
+from pipecat.serializers.vobiz import VobizFrameSerializer , parse_vobiz_start 
+
+# background ambience imports 
+# import to add background ambient sounds to the bot 
+from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer 
+
+# aws llm 
+from pipecat.services.aws.llm import AWSBedrockLLMService , AWSBedrockLLMSettings 
+
+# eleven labs services import 
+from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService , ElevenLabsRealtimeSTTSettings , CommitStrategy 
+from pipecat.services.elevenlabs.tts import ElevenLabsTTSService , ElevenLabsTTSSettings 
+
+# cartesia services import 
+from pipecat.services.cartesia.stt import CartesiaSTTService , CartesiaSTTSettings 
+from pipecat.services.cartesia.tts import CartesiaTTSService , CartesiaTTSSettings , GenerationConfig
+
+# sarvam services import 
+from pipecat.services.sarvam.stt import SarvamSTTService , SarvamSTTSettings 
+from pipecat.services.sarvam.tts import SarvamTTSService , SarvamTTSSettings 
+
+# deepgram services import 
+from pipecat.services.deepgram.stt import DeepgramSTTService , DeepgramSTTSettings 
+from pipecat.services.deepgram.tts import DeepgramTTSService , DeepgramTTSSettings 
+
+# VAD imports 
+from pipecat.audio.vad.silero import SileroVADAnalyzer 
+from pipecat.audio.vad.vad_analyzer import VADParams 
+
+# backend import 
+from backend.src.pipecat.idle_handler import IdleHandler 
+from backend.src.config.settings import settings
+from backend.src.ai.prompts.prompt_main import return_prompt
+
+# tool imports 
+from backend.src.ai.tools.current import get_current_datetime 
+from backend.src.ai.tools.end_call import dynamic_end_call
+
+logger = logging.getLogger(__name__)
+
+# path of the audio file that is to be used as the background ambience (change the path according to the file location) 
+# the sample rate of the file should the same as the transport sample rate 
+# BACKEND_DIR = Path(__file__).resolve().parents[1]
+# AUDIO_DIR = BACKEND_DIR / "assets" / "resample_output.wav"
+
+# adjust the parameters of your transport layer over here 
+transport_params = {
+    # SmallWebRTC for browser sessions 
+    "webrtc": lambda: TransportParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        # background noise filter 
+        audio_in_filter=RNNoiseFilter(),
+        audio_in_sample_rate=16000,
+        audio_out_sample_rate=16000,
+        # background ambience sound (change the path of the file ) 
+        # audio_out_mixer=SoundfileMixer(
+        #     sound_files={"office": str(AUDIO_DIR)},
+        #     default_sound="office",
+        #     loop=True,
+        #     volume=2.0,
+        # ),
+    ),
+    # Vobiz telephony — bidirectional 8kHz WebSocket stream
+    # serializer is NOT set here — VobizFrameSerializer needs stream_id
+    # from the first Vobiz frame (parse_vobiz_start). It is constructed and
+    # passed in FastAPIWebsocketTransport() directly inside the /ws handler.
+    "vobiz": lambda: FastAPIWebsocketParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        add_wav_header=False,
+        audio_in_sample_rate=8000,
+        audio_out_sample_rate=8000,
+        # background noise filter 
+        audio_in_filter=RNNoiseFilter(),
+        # background ambience sound (change the path of the file ) 
+        # audio_out_mixer=SoundfileMixer(
+        #     sound_files={"office": str(AUDIO_DIR)},
+        #     default_sound="office",
+        #     loop=True,
+        #     volume=2.0,
+        # ),
+    ),
+}
+
+
+async def build_pipeline(
+    transport , 
+    call_id : str | None = None , 
+) -> PipelineWorker: 
+
+    # derive sample rate from transport params
+    # TransportParams exposes audio_in_sample_rate; FastAPIWebsocketParams inherits it.
+    sample_rate: int = getattr(transport._params, "audio_out_sample_rate", 16000)
+
+    # idle handler instance 
+    idlehandler  = IdleHandler() 
+
+    if settings.stt_provider == "sarvam" : 
+        logger.info("[pipeline] Sarvam STT chosen") 
+        stt = SarvamSTTService(
+            api_key=settings.sarvam_api_key, 
+            mode="transcribe", 
+            sample_rate=sample_rate,
+            settings=SarvamSTTSettings(
+                model="saaras:v4" , 
+            )
+        )
+        logger.info("[pipeline] Sarvam STT initiated")
+
+    elif settings.stt_provider == "cartesia" : 
+        logger.info("[pipeline] Cartiesia stt chosen")
+        stt = CartesiaSTTService(
+           api_key=settings.cartesia_api_key, 
+           sample_rate=sample_rate , 
+            settings=CartesiaSTTSettings(
+                model="ink-whisper" , 
+            )
+        )
+        logger.info("[pipeline] cartesia stt initiated")
+    
+    elif settings.stt_provider == "deepgram" : 
+        logger.info("[pipeline] Deepgram stt chosen")
+        stt = DeepgramSTTService(
+            api_key=settings.deepgram_api_key , 
+            sample_rate=sample_rate , 
+            settings=DeepgramSTTSettings(
+                # additional settings to be added here
+            )
+        )
+    
+    else: 
+        logger.info("[pipeline] elevenlabs stt chosen")
+        stt = ElevenLabsRealtimeSTTService(
+            api_key=settings.elevenlabs_api_key , 
+            commit_strategy=CommitStrategy.MANUAL , 
+            include_timestamps=True , 
+            sample_rate=sample_rate , 
+            settings=ElevenLabsRealtimeSTTSettings(
+                language=Language.EN , 
+                model="scribe_v2_realtime",
+            )
+        ) 
+        logging.info("[pipeline] elevenlabs stt initiated")
+
+    if settings.tts_provider == "sarvam": 
+        logging.info("[pipeline] Sarvam TTS chosen") 
+        tts = SarvamTTSService(
+            api_key=settings.sarvam_api_key , 
+            pause_frame_processing=True, 
+            sample_rate=sample_rate, 
+            settings=SarvamTTSSettings(
+                model="bubul:v3" , 
+                pace=1.0 , 
+                voice="priya", 
+            )
+        )
+        logging.info("[pipeline] sarvam tts initiated")
+    
+    elif settings.tts_provider == "cartesia": 
+        logging.info("[pipeline] cartesia tts chosen")
+        tts = CartesiaTTSService(
+            api_key=settings.cartesia_api_key, 
+            pause_frame_processing=True, 
+            sample_rate=sample_rate , 
+            model="sonic-3", 
+        )
+        logging.info("[pipeline] cartesia tts initiated")
+    
+    elif settings.tts_provider == "deepgram": 
+        logging.info("[pipeline] deepgram tts chosen")
+        tts = DeepgramTTSService(
+            api_key=settings.deepgram_api_key , 
+            settings=DeepgramTTSSettings(
+                voice="aura-2-helena-en",
+            ),
+        )
+        logging.info("[pipeline] deepgram tts initiated")
+    
+    else: 
+        logging.info("[pipeline] eleven labs tts chosen")
+        tts = ElevenLabsTTSService(
+            api_key=settings.elevenlabs_api_key.get_secret_value() if settings.elevenlabs_api_key else "", 
+            sample_rate=sample_rate , 
+            settings=ElevenLabsTTSSettings(
+                voice=settings.elevenlabs_voice_id or "", 
+                speed=1.0, 
+                model="eleven_flash_v2_5", 
+            ), 
+        )
+    
+    # silero vad builder 
+    silero_vad = SileroVADAnalyzer(
+        params=VADParams(
+            confidence=0.7,      # Minimum confidence for voice detection
+            start_secs=0.2,      # Time to wait before confirming speech start
+            stop_secs=0.2,       # Time to wait before confirming speech stop
+            min_volume=0.6,      # Minimum volume threshold
+        )
+    )
+
+
+    # llm config in pipeline 
+    llm = AWSBedrockLLMService(
+        aws_access_key=settings.aws_access_key_id or "", 
+        aws_secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else "",
+        aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
+        aws_region=settings.aws_region or "ap-south-1",
+        settings=AWSBedrockLLMService.Settings(
+            model=settings.agent_model_id or "", 
+            # enabling prompt caching 
+            enable_prompt_caching=True,
+            # system prompt loaded from prompts module 
+            system_instruction=return_prompt() , 
+            max_tokens=300,
+        )
+    )
+
+    conversation_context = LLMContext(tools=[get_current_datetime , dynamic_end_call]) 
+
+    user_aggregator , assistant_aggregator = LLMContextAggregatorPair(
+        context=conversation_context, 
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=silero_vad , 
+            # trigger idle handler after 5 seconds of silence 
+            user_idle_timeout=5.0
+        )
+    )
+
+    pipeline = Pipeline([
+        transport.input(),
+        stt,
+        user_aggregator,
+        llm,
+        tts,
+        transport.output(),       
+        assistant_aggregator,
+    ])
+
+
+    worker = PipelineWorker(
+        pipeline=pipeline , 
+        name="Colca assistant" , 
+        params=PipelineParams(
+            enable_metrics=True,
+        )
+    )
+    
+    # another (simpler and less complex way of handling silences in between the conversation) 
+
+    # @user_aggregator.event_handler("on_user_turn_idle")
+    # async def on_user_turn_idle(aggregator): 
+    #     """ remind the user """ 
+    #     message = {
+    #         "role" : "developer" , 
+    #         "content" : "The user has been quiet for a while. Politely ask if they can hear you and if they are still there"
+    #     }
+
+    #     await aggregator.push_frame(LLMMessagesAppendFrame([message],run_llm=True))
+
+    @user_aggregator.event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator): 
+        await idlehandler.handle_idle(aggregator=aggregator)
+
+    @user_aggregator.event_handler("on_user_turn_started") 
+    async def on_user_turn_started(aggregator): 
+        await idlehandler.reset()    
+
+    # add initial greeting soon as the call connects 
+    @transport.event_handler("on_client_connected") 
+    async def on_client_connected(transport , client): 
+        logger.info("Client connected - starting the conversation") 
+        greeting_instruction = {
+            "role" : "developer" , 
+            "content" : "Say Hello to the user , and introduce yourself , make it sound human" ,
+        }
+        await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+    
+    return worker 

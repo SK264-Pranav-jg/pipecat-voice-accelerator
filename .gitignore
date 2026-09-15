@@ -1,0 +1,6 @@
+# ignore the backend venv
+backend/.venv
+.env
+.vscode
+*/__pycache__/
+
