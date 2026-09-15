@@ -45,21 +45,10 @@ app.add_middleware(
 async def root(): 
     return {"message" : "Pipecat Voice Accelerator - Health check"} 
 
-@app.websocket("/ws",tags=["websocket"]) 
+@app.websocket("/ws") 
 async def websocket_endpoint(
     websocket : WebSocket , 
 ) :
     "main websocket endpoint"
 
     await websocket.accept() 
-
-# run the app 
-if __name__ == "__main__":
-    # run the app using uvicorn 
-    uvicorn.run(
-        "backend.src.api.app:app", 
-        host=settings.host, 
-        port=settings.port, 
-        reload=True, 
-        log_level="info" 
-    ) 
