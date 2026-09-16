@@ -10,6 +10,11 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair ,
     LLMUserAggregatorParams, 
+    LLMAssistantAggregatorParams, 
+)
+from pipecat.utils.context.llm_context_summarization import (
+    LLMAutoContextSummarizationConfig , 
+    LLMContextSummaryConfig , 
 )
 from pipecat.runner.types import RunnerArguments 
 from pipecat.runner.utils import create_transport 
@@ -24,6 +29,9 @@ from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 # pipecat-vobiz import 
 from pipecat.serializers.vobiz import VobizFrameSerializer , parse_vobiz_start 
 
+# strands agents plugin , (plugin to be used in case of using strands agent instead pipecat native LLMServices) 
+from pipecat.processors.frameworks.strands_agents import StrandsAgentsProcessor 
+
 # background ambience imports 
 # import to add background ambient sounds to the bot 
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer 
@@ -37,7 +45,7 @@ from pipecat.services.elevenlabs.tts import ElevenLabsTTSService , ElevenLabsTTS
 
 # cartesia services import 
 from pipecat.services.cartesia.stt import CartesiaSTTService , CartesiaSTTSettings 
-from pipecat.services.cartesia.tts import CartesiaTTSService , CartesiaTTSSettings , GenerationConfig
+from pipecat.services.cartesia.tts import CartesiaTTSService , CartesiaTTSSettings  
 
 # sarvam services import 
 from pipecat.services.sarvam.stt import SarvamSTTService , SarvamSTTSettings 
@@ -232,7 +240,7 @@ async def build_pipeline(
         aws_region=settings.aws_region or "ap-south-1",
         settings=AWSBedrockLLMService.Settings(
             model=settings.agent_model_id or "", 
-            # enabling prompt caching 
+            # enabling prompt caching for models that support it 
             enable_prompt_caching=True,
             # system prompt loaded from prompts module 
             system_instruction=return_prompt() , 
@@ -240,15 +248,39 @@ async def build_pipeline(
         )
     )
 
+    # this part holds the short term memmory of the conversation in-memory 
     conversation_context = LLMContext(tools=[get_current_datetime , dynamic_end_call]) 
 
+    # the bot and user turn aggregator with customisable parameters 
     user_aggregator , assistant_aggregator = LLMContextAggregatorPair(
         context=conversation_context, 
         user_params=LLMUserAggregatorParams(
             vad_analyzer=silero_vad , 
             # trigger idle handler after 5 seconds of silence 
             user_idle_timeout=5.0
-        )
+        ), 
+        # configuring assistant aggregator  
+        # assistant_params=LLMAssistantAggregatorParams(
+            # for longer conversation creating conversation summarizers 
+            # enable_auto_context_summarization=True ,
+            # customising the behaviour of the context summarizer 
+            # auto_context_summarization_config=LLMAutoContextSummarizationConfig(
+            #     max_context_tokens=10000 , 
+            #     max_unsummarized_messages=40 , 
+                # configs of the summary stored 
+                # summary_config=LLMContextSummaryConfig(
+                    # the target summary size 
+                    # target_context_tokens=4000 , 
+                    # minimum number of messages to be kept in the summary uncompressed 
+                    # min_messages_after_summary=10, 
+                    # adding a custom summarization prompt if needed 
+                    # summarization_prompt="" , 
+                    # custom llm (smaller llm ) if needed for summarization 
+                    # use an LLM Service 
+                    # llm=None , 
+            #     )
+            # )
+        # )
     )
 
     pipeline = Pipeline([

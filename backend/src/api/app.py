@@ -28,7 +28,7 @@ async def lifespan(app:FastAPI):
 app = FastAPI(
     title="Pipecat Voice Accelerator",
     version="0.1.0",
-    description="Real-time voice accelerator ",
+    description="Real-time voice accelerator template application built for reusability and jumpstarting projects",
     lifespan=lifespan
 )
 
