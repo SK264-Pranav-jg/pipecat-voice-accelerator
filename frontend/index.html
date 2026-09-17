@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipecat Voice Accelerator — Test Client</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>Pipecat Voice Accelerator</h1>
+    <p class="subtitle">Browser test client — talks to the backend over WebRTC (<code>/api/offer</code>).</p>
+
+    <div class="status-row">
+      <span id="status-dot" class="dot dot-idle"></span>
+      <span id="status-text">Idle</span>
+    </div>
+
+    <div class="controls">
+      <button id="connect-btn">Connect</button>
+      <button id="disconnect-btn" disabled>Disconnect</button>
+    </div>
+
+    <label class="backend-url-label">
+      Backend URL
+      <input id="backend-url" type="text" value="http://127.0.0.1:8080" />
+    </label>
+
+    <audio id="remote-audio" autoplay></audio>
+
+    <h2>Log</h2>
+    <ul id="log"></ul>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

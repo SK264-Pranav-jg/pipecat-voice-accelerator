@@ -9,9 +9,10 @@ from pipecat.pipeline.pipeline import FrameDirection
 
 
 
-class IdleHandler: 
-    def __init__(self): 
-        self._retry_count = 0 
+class IdleHandler:
+    def __init__(self, call_session=None):
+        self._retry_count = 0
+        self._call_session = call_session
 
     async def reset(self): 
         self._retry_count = 0 
@@ -33,12 +34,15 @@ class IdleHandler:
             }
             await aggregator.push_frame(LLMMessagesAppendFrame([message],run_llm=True))
         
-        else: 
-            # third attempt so end the call gracefully 
+        else:
+            # third attempt so end the call gracefully
             message = {
-                "role" : "developer" , 
+                "role" : "developer" ,
                 "content" : "Seems like the caller is not responding and could be busy , thank them and say a finishing statement gracefully"
             }
+            if self._call_session is not None:
+                self._call_session.end_reason = "idle_timeout"
+
             await aggregator.push_frame(
                 LLMMessagesAppendFrame(messages=[message],run_llm=True)
             )
