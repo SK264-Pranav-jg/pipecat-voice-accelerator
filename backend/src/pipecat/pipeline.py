@@ -341,7 +341,7 @@ async def build_pipeline(
 
     worker = PipelineWorker(
         pipeline=pipeline ,
-        name="Colca assistant" ,
+        name="voice accelerator pipeline worker" ,
         observers=[latency_observer],
         params=PipelineParams(
             # enable_metrics=True,
@@ -386,7 +386,7 @@ async def build_pipeline(
         logger.info("Client connected - starting the conversation")
         greeting_instruction = {
             "role" : "developer" ,
-            "content" : "Say Hello to the user , and introduce yourself , make it sound human" ,
+            "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 20 words" ,
         }
         await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
 

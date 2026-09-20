@@ -14,6 +14,7 @@ class AWSConnectionManager:
     """Thread-safe singleton manager for AWS Sessions and clients."""
 
     _session: Optional[boto3.Session] = None
+    # avoiding race conditions when two thread look for initiating a new session 
     _lock = threading.Lock()
 
     @classmethod

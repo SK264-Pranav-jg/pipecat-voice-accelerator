@@ -10,6 +10,8 @@ backend/.venv
 # Python cache — all levels, all folders
 __pycache__/
 **/__pycache__/
+backend/src/__pycache__/
+*/*/__pycache__/*
 
 *.py[cod]
 *.pyo
