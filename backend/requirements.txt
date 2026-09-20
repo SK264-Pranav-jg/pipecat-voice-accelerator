@@ -49,13 +49,16 @@ anyio==4.14.2
     #   app
     #   httpx
     #   httpx2
+    #   langsmith
     #   mcp
     #   openai
     #   sse-starlette
     #   starlette
     #   watchfiles
 asyncpg==0.31.0
-    # via app
+    # via
+    #   app
+    #   langchain-postgres
 attrs==26.1.0
     # via
     #   aiohttp
@@ -83,6 +86,7 @@ beautifulsoup4==4.15.0
 boto3==1.43.56
     # via
     #   app
+    #   langchain-aws
     #   strands-agents
 botocore==1.43.56
     # via
@@ -140,7 +144,9 @@ cycler==0.12.1
     #   app
     #   matplotlib
 deepgram-sdk==7.8.0
-    # via app
+    # via
+    #   app
+    #   pipecat-ai
 defusedxml==0.7.1
     # via
     #   app
@@ -154,6 +160,7 @@ dill==0.4.1
 distro==1.9.0
     # via
     #   app
+    #   langsmith
     #   openai
 dnspython==2.8.0
     # via
@@ -240,11 +247,14 @@ httpx==0.28.1
     #   deepgram-sdk
     #   fastapi
     #   fastapi-cloud-cli
+    #   langchain-core
     #   openai
     #   sarvamai
     #   strands-agents
 httpx2==2.13.0
-    # via mcp
+    # via
+    #   langsmith
+    #   mcp
 httpx2-jsfetch==1.0 ; sys_platform == 'emscripten'
     # via httpx2
 humanize==4.16.0
@@ -304,6 +314,10 @@ joblib==1.5.3
     # via
     #   app
     #   nltk
+jsonpatch==1.33
+    # via langchain-core
+jsonpointer==3.1.1
+    # via jsonpatch
 jsonschema==4.26.0
     # via
     #   mcp
@@ -318,6 +332,21 @@ kiwisolver==1.5.0
     # via
     #   app
     #   matplotlib
+langchain-aws==1.7.0
+    # via app
+langchain-core==1.6.3
+    # via
+    #   langchain-aws
+    #   langchain-postgres
+    #   langchain-text-splitters
+langchain-postgres==0.0.18
+    # via app
+langchain-protocol==0.0.19
+    # via langchain-core
+langchain-text-splitters==1.1.2
+    # via app
+langsmith==0.13.0
+    # via langchain-core
 llvmlite==0.48.0
     # via
     #   app
@@ -326,6 +355,8 @@ loguru==0.7.3
     # via
     #   app
     #   pipecat-ai
+loudness==0.2.0
+    # via pipecat-ai
 markdown==3.10.3
     # via
     #   app
@@ -388,10 +419,14 @@ numpy==2.4.6
     # via
     #   app
     #   contourpy
+    #   langchain-aws
+    #   langchain-postgres
+    #   loudness
     #   matplotlib
     #   numba
     #   onnxruntime
     #   opencv-python-headless
+    #   pgvector
     #   pipecat-ai
     #   pyloudnorm
     #   pyrnnoise
@@ -429,20 +464,26 @@ opentelemetry-semantic-conventions==0.65b0
     # via
     #   opentelemetry-instrumentation
     #   opentelemetry-sdk
+orjson==3.12.0 ; platform_python_implementation != 'PyPy'
+    # via langsmith
 packaging==26.3
     # via
     #   app
+    #   langchain-core
+    #   langsmith
     #   matplotlib
     #   onnxruntime
     #   opentelemetry-instrumentation
     #   twine
+pgvector==0.3.6
+    # via langchain-postgres
 pillow==12.3.0
     # via
     #   app
     #   matplotlib
     #   pipecat-ai
     #   strands-agents-tools
-pipecat-ai==1.7.0
+pipecat-ai==1.11.0
     # via
     #   app
     #   pipecat-vobiz
@@ -464,6 +505,12 @@ protobuf==6.33.6
     #   app
     #   onnxruntime
     #   pipecat-ai
+psycopg==3.3.6
+    # via langchain-postgres
+psycopg-binary==3.3.6 ; implementation_name != 'pypy'
+    # via psycopg
+psycopg-pool==3.3.2
+    # via langchain-postgres
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via
     #   app
@@ -474,6 +521,9 @@ pydantic==2.13.4
     #   deepgram-sdk
     #   fastapi
     #   fastapi-cloud-cli
+    #   langchain-aws
+    #   langchain-core
+    #   langsmith
     #   mcp
     #   mcp-types
     #   openai
@@ -516,9 +566,7 @@ pylibsrtp==1.0.0
     #   aiortc
     #   app
 pyloudnorm==0.2.0
-    # via
-    #   app
-    #   pipecat-ai
+    # via app
 pyopenssl==26.4.0
     # via
     #   aiortc
@@ -540,6 +588,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
     # via
     #   app
+    #   pipecat-ai
     #   pydantic-settings
     #   uvicorn
 python-multipart==0.0.32
@@ -556,6 +605,7 @@ pywin32-ctypes==0.2.3 ; platform_machine != 'ppc64le' and platform_machine != 's
 pyyaml==6.0.3
     # via
     #   app
+    #   langchain-core
     #   pipecat-ai
     #   strands-agents
     #   uvicorn
@@ -578,6 +628,7 @@ requests==2.34.2
     #   app
     #   audiolab
     #   aws-requests-auth
+    #   langsmith
     #   requests-toolbelt
     #   static-ffmpeg
     #   strands-agents-tools
@@ -585,6 +636,7 @@ requests==2.34.2
 requests-toolbelt==1.0.0
     # via
     #   app
+    #   langsmith
     #   twine
 resampy==0.4.3
     # via
@@ -619,7 +671,9 @@ s3transfer==0.19.2
     #   app
     #   boto3
 sarvamai==0.1.28
-    # via app
+    # via
+    #   app
+    #   pipecat-ai
 scipy==1.18.0
     # via
     #   app
@@ -652,11 +706,13 @@ smart-open==8.0.1
 sniffio==1.3.1
     # via
     #   app
+    #   langsmith
     #   openai
 soundfile==0.13.1
     # via
     #   app
     #   audiolab
+    #   pipecat-ai
 soupsieve==2.9.2
     # via beautifulsoup4
 soxr==1.0.0
@@ -664,7 +720,9 @@ soxr==1.0.0
     #   app
     #   pipecat-ai
 sqlalchemy==2.0.54
-    # via app
+    # via
+    #   app
+    #   langchain-postgres
 sse-starlette==3.4.11
     # via mcp
 starlette==1.4.1
@@ -675,7 +733,7 @@ starlette==1.4.1
     #   sse-starlette
 static-ffmpeg==3.0
     # via app
-strands-agents==1.55.1
+strands-agents==1.56.0
     # via
     #   app
     #   strands-agents-tools
@@ -689,7 +747,9 @@ sympy==1.14.0
     #   onnxruntime
     #   strands-agents-tools
 tenacity==9.1.4
-    # via strands-agents-tools
+    # via
+    #   langchain-core
+    #   strands-agents-tools
 tqdm==4.70.0
     # via
     #   app
@@ -715,6 +775,9 @@ typing-extensions==4.16.0
     #   beautifulsoup4
     #   deepgram-sdk
     #   fastapi
+    #   langchain-core
+    #   langchain-protocol
+    #   langsmith
     #   mcp
     #   mcp-types
     #   openai
@@ -722,6 +785,7 @@ typing-extensions==4.16.0
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   pipecat-ai
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   pydantic-extra-types
@@ -740,7 +804,9 @@ typing-inspection==0.4.2
     #   pydantic
     #   pydantic-settings
 tzdata==2026.4 ; sys_platform == 'win32'
-    # via strands-agents-tools
+    # via
+    #   psycopg
+    #   strands-agents-tools
 urllib3==2.7.0
     # via
     #   app
@@ -749,6 +815,10 @@ urllib3==2.7.0
     #   requests
     #   sentry-sdk
     #   twine
+uuid-utils==0.17.1
+    # via
+    #   langchain-core
+    #   langsmith
 uvicorn==0.52.1
     # via
     #   app
@@ -768,12 +838,13 @@ watchfiles==1.2.0
     # via
     #   app
     #   uvicorn
-wcwidth==0.8.3
+wcwidth==0.8.4
     # via prompt-toolkit
 websockets==17.0.1
     # via
     #   app
     #   deepgram-sdk
+    #   langsmith
     #   pipecat-ai
     #   sarvamai
     #   uvicorn
@@ -788,7 +859,11 @@ wrapt==2.3.0
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-threading
     #   smart-open
+xxhash==4.0.1
+    # via langsmith
 yarl==1.24.5
     # via
     #   aiohttp
     #   app
+zstandard==0.25.0
+    # via langsmith
