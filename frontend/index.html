@@ -1,37 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pipecat Voice Accelerator — Test Client</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
-  <main class="card">
-    <h1>Pipecat Voice Accelerator</h1>
-    <p class="subtitle">Browser test client — talks to the backend over WebRTC (<code>/api/offer</code>).</p>
+  <div class="layout">
+    <main class="card call-card">
+      <h1>Pipecat Voice Accelerator</h1>
+      <p class="subtitle">Browser test client — talks to the backend over WebRTC (<code>/api/offer</code>).</p>
 
-    <div class="status-row">
-      <span id="status-dot" class="dot dot-idle"></span>
-      <span id="status-text">Idle</span>
-    </div>
+      <div class="status-row">
+        <span id="status-dot" class="dot dot-idle"></span>
+        <span id="status-text">Idle</span>
+      </div>
 
-    <div class="controls">
-      <button id="connect-btn">Connect</button>
-      <button id="disconnect-btn" disabled>Disconnect</button>
-    </div>
+      <div class="controls">
+        <button id="connect-btn">Connect</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+      </div>
 
-    <label class="backend-url-label">
-      Backend URL
-      <input id="backend-url" type="text" value="http://127.0.0.1:8080" />
-    </label>
+      <label class="backend-url-label">
+        Backend URL
+        <input id="backend-url" type="text" value="http://127.0.0.1:8080" />
+      </label>
 
-    <audio id="remote-audio" autoplay></audio>
+      <audio id="remote-audio" autoplay></audio>
 
-    <h2>Log</h2>
-    <ul id="log"></ul>
-  </main>
+      <div class="activity-row">
+        <span id="user-activity" class="activity-indicator"><span class="activity-dot"></span>You</span>
+        <span id="bot-activity" class="activity-indicator"><span class="activity-dot"></span>Bot</span>
+      </div>
+
+      <details class="log-details">
+        <summary>Connection log</summary>
+        <ul id="log"></ul>
+      </details>
+    </main>
+
+    <section class="card transcript-card">
+      <div class="transcript-header">
+        <h2>Transcript</h2>
+        <div class="transcript-actions">
+          <button id="copy-transcript-btn" class="ghost-btn" disabled>Copy</button>
+          <button id="download-transcript-btn" class="ghost-btn" disabled>Download</button>
+          <button id="clear-transcript-btn" class="ghost-btn" disabled>Clear</button>
+        </div>
+      </div>
+      <div id="transcript" class="transcript-body">
+        <p class="transcript-empty">Connect and start talking — the live transcript will appear here.</p>
+      </div>
+      <p id="transcript-end-banner" class="transcript-end-banner" hidden>
+        Call ended — the transcript above is complete. Copy or download it before reconnecting; a new call clears it.
+      </p>
+    </section>
+  </div>
 
   <script type="module" src="main.js"></script>
 </body>
+
 </html>

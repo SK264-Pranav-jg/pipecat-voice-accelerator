@@ -62,6 +62,12 @@ from pipecat.services.deepgram.tts import DeepgramTTSService , DeepgramTTSSettin
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 
+# turn-taking — SpeechTimeoutUserTurnStopStrategy (silence timeout) instead of the
+# framework default LocalSmartTurnAnalyzerV3 (a local ML model run on every turn) to
+# keep response latency low and predictable
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
+
 # latency visibility — enable_metrics=True alone collects nothing you can see
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 
@@ -164,7 +170,7 @@ async def build_pipeline(
             mode="transcribe", 
             sample_rate=sample_rate,
             settings=SarvamSTTSettings(
-                model="saaras:v4" , 
+                model="saaras:v3" , 
             )
         )
         logger.info("[pipeline] Sarvam STT initiated")
@@ -211,7 +217,7 @@ async def build_pipeline(
             pause_frame_processing=True, 
             sample_rate=sample_rate, 
             settings=SarvamTTSSettings(
-                model="bubul:v3" , 
+                model="bulbul:v3" , 
                 pace=1.0 , 
                 voice="priya", 
             )
@@ -222,9 +228,10 @@ async def build_pipeline(
         logging.info("[pipeline] cartesia tts chosen")
         tts = CartesiaTTSService(
             api_key=settings.cartesia_api_key.get_secret_value() if settings.cartesia_api_key else "",
-            pause_frame_processing=True, 
-            sample_rate=sample_rate , 
-            model="sonic-3", 
+            voice_id=settings.cartesia_voice_id,
+            pause_frame_processing=True,
+            sample_rate=sample_rate ,
+            model="sonic-3",
         )
         logging.info("[pipeline] cartesia tts initiated")
     
@@ -284,10 +291,15 @@ async def build_pipeline(
     user_aggregator , assistant_aggregator = LLMContextAggregatorPair(
         context=conversation_context, 
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=silero_vad , 
-            # trigger idle handler after 5 seconds of silence 
-            user_idle_timeout=5.0
-        ), 
+            vad_analyzer=silero_vad ,
+            # trigger idle handler after 5 seconds of silence
+            user_idle_timeout=5.0 ,
+            # silence-timeout turn end instead of the default local Smart Turn model,
+            # for lower and more predictable turn-taking latency
+            user_turn_strategies=UserTurnStrategies(
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)]
+            ),
+        ),
         # configuring assistant aggregator  
         # assistant_params=LLMAssistantAggregatorParams(
             # for longer conversation creating conversation summarizers 
@@ -332,7 +344,7 @@ async def build_pipeline(
         name="Colca assistant" ,
         observers=[latency_observer],
         params=PipelineParams(
-            enable_metrics=True,
+            # enable_metrics=True,
         )
     )
 
@@ -365,7 +377,7 @@ async def build_pipeline(
         await idlehandler.handle_idle(aggregator=aggregator)
 
     @user_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator):
+    async def on_user_turn_started(aggregator, strategy):
         await idlehandler.reset()
 
     # add initial greeting soon as the call connects

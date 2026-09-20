@@ -43,11 +43,11 @@ async def get_current_datetime(params : FunctionCallParams , timezone_str : str 
         temporal_data = json.dumps(result,indent=2) 
         await params.result_callback(temporal_data) 
     
-    except zoneinfo.ZoneInfoNotFoundError: 
-        return json.dumps({
+    except zoneinfo.ZoneInfoNotFoundError:
+        await params.result_callback(json.dumps({
             "error" : f"Invalid timezone {timezone_str}"
-        })
-    except Exception as e : 
-        return json.dumps({
+        }))
+    except Exception as e :
+        await params.result_callback(json.dumps({
             "error" : f"Unable to get current date and time : {str(e)}"
-        })
+        }))

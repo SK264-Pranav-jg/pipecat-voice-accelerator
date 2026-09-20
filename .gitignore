@@ -10,6 +10,7 @@ backend/.venv
 # Python cache — all levels, all folders
 __pycache__/
 **/__pycache__/
+
 *.py[cod]
 *.pyo
 
@@ -17,3 +18,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# os specific git ignores 
+.DS_Store 
+
+# claude 
+.claude/

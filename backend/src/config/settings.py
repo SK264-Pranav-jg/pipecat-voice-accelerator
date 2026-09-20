@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     cartesia_api_key: Optional[SecretStr] = Field(
         default=None, description="API key for Cartesia voice services"
     )
+    cartesia_voice_id: Optional[str] = Field(
+        default=None, description="Default Cartesia Voice ID"
+    )
     deepgram_api_key : Optional[SecretStr] = Field(
         default=None, description="API for deepgram voice services"
     )

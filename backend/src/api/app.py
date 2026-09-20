@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 # pipecat imports
 from pipecat.workers.runner import WorkerRunner
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
-from pipecat.transports.smallwebrtc.request_handler import SmallWebRTCRequestHandler, SmallWebRTCRequest
+from pipecat.transports.smallwebrtc.request_handler import (
+    SmallWebRTCRequestHandler,
+    SmallWebRTCRequest,
+    SmallWebRTCPatchRequest,
+)
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport
 from pipecat.serializers.vobiz import VobizFrameSerializer, parse_vobiz_start
 
@@ -94,6 +98,14 @@ async def offer(request: dict):
 
     answer = await webrtc_request_handler.handle_web_request(webrtc_request, on_new_connection)
     return answer
+
+
+@app.patch("/api/offer")
+async def offer_ice_candidate(request: SmallWebRTCPatchRequest):
+    """Trickle ICE candidates for an existing peer connection. The client SDK sends
+    these as they're discovered, separately from the initial offer/answer above."""
+    await webrtc_request_handler.handle_patch_request(request)
+    return {"status": "success"}
 
 
 @app.websocket("/ws")

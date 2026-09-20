@@ -1,12 +1,34 @@
 # Test client
 
-Minimal vanilla HTML/JS page for testing the WebRTC (browser) call path
-against `POST /api/offer`. Uses Pipecat's own client SDK
+Vanilla HTML/JS page for testing the WebRTC (browser) call path against
+`POST /api/offer`, with a live transcript panel. Uses Pipecat's own client SDK
 (`@pipecat-ai/client-js` + `@pipecat-ai/small-webrtc-transport`, loaded from
 the esm.sh CDN as native ES modules — no `npm install` or build step) instead
 of hand-rolled WebRTC signaling, so it performs the exact connection sequence
 the backend expects: SDP offer/answer, then a post-connect "ready" handshake
 over the data channel before the bot starts talking.
+
+## Live transcript
+
+The right-hand panel renders the conversation as it happens, using Pipecat's
+RTVI protocol (enabled automatically on every `PipelineWorker` — no backend
+changes needed):
+
+- **User turns** come from `onUserTranscript` — shown dimmed while interim,
+  solid once the STT service finalizes the segment.
+- **Bot turns** come from `onBotOutput` (bracketed by `onBotLlmStarted`/
+  `onBotLlmStopped`), which aggregates the bot's spoken output sentence by
+  sentence as the LLM/TTS produce it.
+- Small dots next to "You" / "Bot" light up on `onUserStartedSpeaking` /
+  `onBotStartedSpeaking` so you can see who has the floor without reading text.
+
+When the call ends, whatever turn was mid-flight is finalized (interim
+styling removed) rather than dropped, and a banner marks the transcript as
+complete. Use **Copy** or **Download** to save it before starting a new call —
+connecting again clears the panel. This is a client-side, in-memory transcript
+for manual testing; it is separate from the server-side transcript persisted
+to Postgres (`backend/src/db/`), which is the source of truth if you need a
+call history feature.
 
 ## This is two separate processes, not one
 
