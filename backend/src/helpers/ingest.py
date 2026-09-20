@@ -1,0 +1,1 @@
+""" helper script (standalone) to ingest documents into the vector db""" 
