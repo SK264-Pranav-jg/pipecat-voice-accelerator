@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
-from pydantic import Field, SecretStr , AliasChoices , ValidationInfo , field_validator
+from pydantic import Field, SecretStr , AliasChoices , ValidationInfo , computed_field , field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Anchored to backend/.env regardless of the process's current working directory —
@@ -104,6 +104,33 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(
         default=10, description="Max connections allowed beyond db_pool_size under load"
     )
+
+    # RAG / knowledge base (pgvector, embedded via AWS Bedrock)
+    kb_embedding_model_id: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        description="Bedrock model id used to embed knowledge-base chunks and queries",
+    )
+    kb_embedding_dimensions: int = Field(
+        default=1024, description="Vector size for the embedding model above"
+    )
+    kb_table_name: str = Field(
+        default="kb_chunks", description="Postgres table (pgvector) storing embedded knowledge-base chunks"
+    )
+    kb_top_k: int = Field(
+        default=4, description="Number of chunks the retrieval tool returns per query"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pgvector_url(self) -> str:
+        """Sync psycopg3 URL for LangChain PGVector.
+
+        LangChain-postgres uses psycopg (v3) not asyncpg, so the driver token in
+        the URL must be swapped. The ingestion script also uses this URL.
+
+        Requires: psycopg[binary]>=3.0.0  (add to your venv if not present)
+        """
+        return self.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
 
     @field_validator("database_url", mode="before")
     @classmethod

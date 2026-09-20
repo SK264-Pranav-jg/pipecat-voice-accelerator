@@ -431,17 +431,21 @@ async def build_pipeline(
         
         ack_context = LLMContext(messages=[
             {
-            "role" : "system" , 
-            "content" : "Generate a brief , natural acknowledgement (max 5 - 10 words) telling you are looking something up , nothing else"
-            } , 
-            {
-                "role" : "user" , 
+                "role" : "user" ,
                 "content" : f"Function being called {func_name}"
             }
         ])
 
-        acknowledgement = await service.run_inference(ack_context) 
-        if acknowledgement: 
+        # run_inference() falls back to the service's own system_instruction (the
+        # full Pulse persona prompt) when none is passed here — and Bedrock's
+        # adapter discards any system message already inside ack_context in favor
+        # of that fallback. Passing it explicitly is the only way to actually use
+        # this short acknowledgement instruction instead.
+        acknowledgement = await service.run_inference(
+            ack_context,
+            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. Nothing else.",
+        )
+        if acknowledgement:
             await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))
 
     # single place the call is marked ended, regardless of what triggered it —
