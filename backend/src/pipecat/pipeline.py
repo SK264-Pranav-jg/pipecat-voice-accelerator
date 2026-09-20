@@ -33,6 +33,8 @@ from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.serializers.vobiz import VobizFrameSerializer , parse_vobiz_start 
 
 # strands agents plugin , (plugin to be used in case of using strands agent instead pipecat native LLMServices) 
+# please refrain from using strands agents unless or until non negotiable since it loses a lot of event handlers and ease of adding features 
+# to the bot 
 from pipecat.processors.frameworks.strands_agents import StrandsAgentsProcessor 
 
 # background ambience imports 
@@ -80,6 +82,7 @@ from backend.src.ai.prompts.prompt_main import return_prompt
 # tool imports
 from backend.src.ai.tools.current import get_current_datetime
 from backend.src.ai.tools.end_call import create_end_call_tool
+from backend.src.ai.tools.retrieval import query_knowledge_base 
 
 # db imports (call metadata + transcript persistence)
 from backend.src.db.repository import create_call, add_message, end_call
@@ -285,7 +288,7 @@ async def build_pipeline(
     )
 
     # this part holds the short term memmory of the conversation in-memory
-    conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session)])
+    conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session), query_knowledge_base])
 
     # the bot and user turn aggregator with customisable parameters 
     user_aggregator , assistant_aggregator = LLMContextAggregatorPair(
@@ -339,18 +342,25 @@ async def build_pipeline(
     # best reflects what the caller actually perceives as "responsiveness"
     latency_observer = UserBotLatencyObserver()
 
+    @latency_observer.event_handler("on_latency_measured")
+    async def on_latency_measured(observer, latency):
+        logger.info(f"[latency] call={call_id} turn response time: {latency * 1000:.0f}ms")
+    
+    @latency_observer.event_handler("on_latency_breakdown")
+    async def on_latency_breakdown(observer,breakdown): 
+        for line in breakdown.turn_contribution_lines():
+            logger.info(line) 
+
+
     worker = PipelineWorker(
         pipeline=pipeline ,
         name="voice accelerator pipeline worker" ,
         observers=[latency_observer],
         params=PipelineParams(
-            # enable_metrics=True,
+            enable_usage_metrics=True, 
+            enable_metrics=True,
         )
     )
-
-    @latency_observer.event_handler("on_latency_measured")
-    async def on_latency_measured(observer, latency):
-        logger.info(f"[latency] call={call_id} turn response time: {latency * 1000:.0f}ms")
 
     # service/provider errors (bad API keys, expired credentials, reconnect
     # failures, etc.) are relayed to the client over the data channel but are
@@ -412,6 +422,27 @@ async def build_pipeline(
                     interrupted=message.interrupted,
                 )
             )
+        
+    @llm.event_handler("on_function_calls_started")
+    async def on_function_calls_started(service,function_calls): 
+        func_name = function_calls[0].function_name 
+        if func_name != 'query_knowledge_base':
+            return 
+        
+        ack_context = LLMContext(messages=[
+            {
+            "role" : "system" , 
+            "content" : "Generate a brief , natural acknowledgement (max 5 - 10 words) telling you are looking something up , nothing else"
+            } , 
+            {
+                "role" : "user" , 
+                "content" : f"Function being called {func_name}"
+            }
+        ])
+
+        acknowledgement = await service.run_inference(ack_context) 
+        if acknowledgement: 
+            await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))
 
     # single place the call is marked ended, regardless of what triggered it —
     # the end-call tool, the idle handler's final timeout, or the client
@@ -419,5 +450,6 @@ async def build_pipeline(
     @worker.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(worker, frame):
         asyncio.create_task(end_call(db_call_id, call_session.end_reason))
+        logger.info("call ended and db record saved")
 
     return worker
