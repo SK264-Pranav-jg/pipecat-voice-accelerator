@@ -131,8 +131,10 @@ async def websocket_endpoint(websocket: WebSocket):
     start_info = await parse_vobiz_start(websocket)
     stream_id = start_info["stream_id"]
 
-    # Prefer call_id passed as query parameter in the Stream XML, fall back to start packet or streamId
-    query_call_id = websocket.query_params.get("call_id")
+    # Prefer call_id passed as query parameter in the Stream XML, fall back to start packet or streamId.
+    # Vobiz sometimes fails to unescape the XML-escaped "&" in the Stream URL, which shifts the next
+    # query key from "call_id" to "amp;call_id" — same workaround already applied to /answer.
+    query_call_id = websocket.query_params.get("call_id") or websocket.query_params.get("amp;call_id")
     call_id = query_call_id or start_info["call_id"] or stream_id
 
     # Lookup any stashed outbound call metadata
@@ -144,16 +146,37 @@ async def websocket_endpoint(websocket: WebSocket):
         else (settings.vobiz_phone_number or None)
     )
 
+    # The serializer's REST auto-hangup needs Vobiz's own call identifier, not our internal call_id
+    # (which is only used for local correlation/DB keying). For outbound calls that's the call_uuid
+    # returned by trigger_outbound_call; for inbound calls, fall back to whatever Vobiz's start event
+    # reports as callId. The WS "stop" event half of auto-hangup still works even if this is unset.
+    vobiz_call_uuid = (
+        (active_call_meta.get("call_uuid") if active_call_meta else None)
+        or start_info["call_id"]
+        or None
+    )
+
     negotiated_rate = start_info["sample_rate"] or settings.vobiz_sample_rate
+    negotiated_encoding = start_info["encoding"] or settings.vobiz_encoding
+
+    # Vobiz's start event is the ground truth for wire format — log what it actually declared
+    # (vs. our env defaults) so a garbled/misdecoded STT transcript can be diagnosed from this
+    # line alone instead of digging through the serializer's own warning/error logs.
+    logger.info(
+        f"[ws] Vobiz call_id={call_id} stream_id={stream_id} "
+        f"declared_encoding={start_info['encoding']!r} declared_sample_rate={start_info['sample_rate']!r} "
+        f"(env defaults: encoding={settings.vobiz_encoding!r} sample_rate={settings.vobiz_sample_rate!r}) "
+        f"-> using encoding={negotiated_encoding!r} sample_rate={negotiated_rate}"
+    )
 
     serializer = VobizFrameSerializer(
         stream_id=stream_id,
-        call_id=call_id,
+        call_id=vobiz_call_uuid,
         auth_id=settings.vobiz_auth_id or None,
         auth_token=settings.vobiz_auth_token.get_secret_value() or None,
         params=VobizFrameSerializer.InputParams(
             vobiz_sample_rate=negotiated_rate,
-            encoding=start_info["encoding"] or settings.vobiz_encoding,
+            encoding=negotiated_encoding,
         ),
     )
 

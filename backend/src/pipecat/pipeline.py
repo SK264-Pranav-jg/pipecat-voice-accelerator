@@ -87,6 +87,9 @@ from backend.src.ai.tools.retrieval import query_knowledge_base
 # db imports (call metadata + transcript persistence)
 from backend.src.db.repository import create_call, add_message, end_call
 
+# vobiz active-call tracking cleanup
+from backend.src.api.vobiz_telephony import pop_active_vobiz_call
+
 logger = logging.getLogger(__name__)
 
 # path of the audio file that is to be used as the background ambience (change the path according to the file location) 
@@ -122,8 +125,10 @@ transport_params = {
         add_wav_header=False,
         audio_in_sample_rate=8000,
         audio_out_sample_rate=8000,
-        # background noise filter 
-        # audio_in_filter=RNNoiseFilter(),
+        # background/line noise filter — RNNoise internally resamples 8kHz <-> 48kHz,
+        # so it works fine at telephony rates. Suppressing line hiss/comfort noise here
+        # helps VAD get a clean speaking/not-speaking signal instead of flickering on noise.
+        audio_in_filter=RNNoiseFilter(),
         # background ambience sound (change the path of the file ) 
         # audio_out_mixer=SoundfileMixer(
         #     sound_files={"office": str(AUDIO_DIR)},
@@ -231,10 +236,11 @@ async def build_pipeline(
         logging.info("[pipeline] cartesia tts chosen")
         tts = CartesiaTTSService(
             api_key=settings.cartesia_api_key.get_secret_value() if settings.cartesia_api_key else "",
-            voice_id=settings.cartesia_voice_id,
-            pause_frame_processing=True,
             sample_rate=sample_rate ,
-            model="sonic-3",
+            settings=CartesiaTTSSettings(
+                model="sonic-3",
+                voice=settings.cartesia_voice_id,
+            ),
         )
         logging.info("[pipeline] cartesia tts initiated")
     
@@ -260,15 +266,30 @@ async def build_pipeline(
             ), 
         )
     
-    # silero vad builder 
-    silero_vad = SileroVADAnalyzer(
-        params=VADParams(
-            confidence=0.7,      # Minimum confidence for voice detection
-            start_secs=0.2,      # Time to wait before confirming speech start
-            stop_secs=0.2,       # Time to wait before confirming speech stop
-            min_volume=0.6,      # Minimum volume threshold
+    # silero vad builder
+    # these are the pipecat framework defaults, tuned for clean wideband mic audio.
+    # Vobiz telephony audio is 8kHz + mu-law compressed and noticeably quieter/noisier
+    # after codec compression, so a brief one-word reply ("yeah") can fail to hold
+    # confidence/volume for the full start_secs window and never register as speech,
+    # and line noise can keep VAD flickering between speaking/not-speaking, stalling
+    # the user turn until a loud, unambiguous utterance forces a clean transition.
+    # Lower thresholds here are a starting point — validate against real test calls
+    # and tune further; going too low risks false triggers from line noise/comfort noise.
+    if transport_type == "websocket":  # Vobiz telephony
+        vad_params = VADParams(
+            confidence=0.6,      # slightly more sensitive on compressed 8kHz audio
+            start_secs=0.1,      # confirm speech start faster — catches short replies
+            stop_secs=0.3,       # a bit more tolerant of brief noise-driven flicker
+            min_volume=0.4,      # phone audio is quieter than a browser mic after codec loss
         )
-    )
+    else:  # browser/WebRTC mic — clean wideband audio, keep framework defaults
+        vad_params = VADParams(
+            confidence=0.7,
+            start_secs=0.2,
+            stop_secs=0.2,
+            min_volume=0.6,
+        )
+    silero_vad = SileroVADAnalyzer(params=vad_params)
 
 
     # llm config in pipeline 
@@ -455,6 +476,10 @@ async def build_pipeline(
     @worker.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(worker, frame):
         asyncio.create_task(end_call(db_call_id, call_session.end_reason))
+        # clears the in-memory outbound-call metadata stash regardless of what ended the
+        # call (bot's end_call tool, idle timeout, callee hangup) — not just the explicit
+        # /vobiz/calls/{call_id}/hangup endpoint. No-op for webrtc calls / unknown call_id.
+        pop_active_vobiz_call(call_id)
         logger.info("call ended and db record saved")
 
     return worker
