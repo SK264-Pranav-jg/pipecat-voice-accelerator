@@ -123,7 +123,7 @@ transport_params = {
         audio_in_sample_rate=8000,
         audio_out_sample_rate=8000,
         # background noise filter 
-        audio_in_filter=RNNoiseFilter(),
+        # audio_in_filter=RNNoiseFilter(),
         # background ambience sound (change the path of the file ) 
         # audio_out_mixer=SoundfileMixer(
         #     sound_files={"office": str(AUDIO_DIR)},
@@ -394,11 +394,12 @@ async def build_pipeline(
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport , client):
         logger.info("Client connected - starting the conversation")
-        greeting_instruction = {
-            "role" : "developer" ,
-            "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 20 words" ,
-        }
-        await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+        # greeting_instruction = {
+        #     "role" : "developer" ,
+        #     "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 20 words" ,
+        # }
+        # await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+        await worker.queue_frames([TTSSpeakFrame("Hello this is Pulse calling to assist you ! ")])
 
     # transcript capture — one row per turn (see backend/src/db/models.py for why
     # this isn't a single growing column). Persisted off the frame path via
@@ -443,7 +444,7 @@ async def build_pipeline(
         # this short acknowledgement instruction instead.
         acknowledgement = await service.run_inference(
             ack_context,
-            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. Nothing else.",
+            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. mix and match it dynamically.",
         )
         if acknowledgement:
             await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))

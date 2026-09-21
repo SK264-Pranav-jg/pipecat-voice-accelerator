@@ -59,6 +59,7 @@ class Settings(BaseSettings):
         default=8000, description="Audio sample rate in Hz for Vobiz XML content-type"
     )
     webhook_endpoint: str = Field(
+        validation_alias=AliasChoices("webhook_endpoint", "webhook_url"),
         default="", description="Webhook URL for event callbacks"
     )
 
@@ -120,6 +121,20 @@ class Settings(BaseSettings):
         default=4, description="Number of chunks the retrieval tool returns per query"
     )
 
+    def get_public_url(self) -> str:
+        """Returns the public HTTP/HTTPS base URL configured via webhook_endpoint."""
+        endpoint = self.webhook_endpoint.strip()
+        if not endpoint:
+            raise ValueError("WEBHOOK_ENDPOINT environment variable is not configured")
+        if endpoint.startswith("http://") or endpoint.startswith("https://"):
+            return endpoint.rstrip("/")
+        return f"https://{endpoint.rstrip('/')}"
+
+    @property
+    def public_url(self) -> str:
+        """Convenience property for get_public_url()."""
+        return self.get_public_url()
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pgvector_url(self) -> str:
@@ -135,7 +150,7 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_postgres_scheme(cls, value: str) -> str:
-        """Accept a plain postgresql:// (or Heroku-style postgres://) URL and upgrade
+        """Accept a plain postgresql:// (or postgres://) URL and upgrade
         it to the asyncpg driver scheme SQLAlchemy's async engine requires."""
         if value.startswith("postgresql://"):
             return value.replace("postgresql://", "postgresql+asyncpg://", 1)

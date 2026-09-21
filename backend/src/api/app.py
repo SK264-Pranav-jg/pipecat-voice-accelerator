@@ -2,6 +2,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import aiohttp
+
 # fastapi imports
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,7 @@ from pipecat.serializers.vobiz import VobizFrameSerializer, parse_vobiz_start
 from backend.src.config.settings import settings
 from backend.src.pipecat.pipeline import build_pipeline, transport_params
 from backend.src.db.session import init_db, close_db
+from backend.src.api.vobiz_telephony import vobiz_telephony_router, get_active_vobiz_call
 
 # logging — without this, every logging.getLogger(...).info(...) call in the app
 # (provider selection, call lifecycle, latency) is silently dropped: the root
@@ -39,7 +42,10 @@ webrtc_request_handler = SmallWebRTCRequestHandler()
 async def lifespan(app: FastAPI):
     logger.info("Starting up...")
     await init_db()
+    app.state.session = aiohttp.ClientSession()
     yield
+    if hasattr(app.state, "session"):
+        await app.state.session.close()
     await webrtc_request_handler.close()
     await close_db()
     logger.info("Shutting down...")
@@ -61,6 +67,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# mount telephony router
+app.include_router(vobiz_telephony_router)
 
 
 async def _run_worker(worker):
@@ -84,6 +93,9 @@ async def offer(request: dict):
     webrtc_request = SmallWebRTCRequest.from_dict(request)
 
     async def on_new_connection(connection):
+        req_data = webrtc_request.request_data if isinstance(webrtc_request.request_data, dict) else {}
+        caller_name = req_data.get("caller_name") or None
+
         transport = SmallWebRTCTransport(
             webrtc_connection=connection,
             params=transport_params["webrtc"](),
@@ -93,6 +105,7 @@ async def offer(request: dict):
             call_id=connection.pc_id,
             transport_type="webrtc",
             provider="browser",
+            caller_name=caller_name,
         )
         asyncio.create_task(_run_worker(worker))
 
@@ -117,7 +130,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
     start_info = await parse_vobiz_start(websocket)
     stream_id = start_info["stream_id"]
-    call_id = start_info["call_id"] or stream_id
+
+    # Prefer call_id passed as query parameter in the Stream XML, fall back to start packet or streamId
+    query_call_id = websocket.query_params.get("call_id")
+    call_id = query_call_id or start_info["call_id"] or stream_id
+
+    # Lookup any stashed outbound call metadata
+    active_call_meta = get_active_vobiz_call(call_id) if call_id else None
+    caller_name = active_call_meta.get("caller_name") if active_call_meta else None
+    phone_number = (
+        active_call_meta.get("phone_number")
+        if active_call_meta
+        else (settings.vobiz_phone_number or None)
+    )
+
     negotiated_rate = start_info["sample_rate"] or settings.vobiz_sample_rate
 
     serializer = VobizFrameSerializer(
@@ -143,7 +169,8 @@ async def websocket_endpoint(websocket: WebSocket):
         call_id=call_id,
         transport_type="websocket",
         provider="vobiz",
-        phone_number=settings.vobiz_phone_number or None,
+        caller_name=caller_name,
+        phone_number=phone_number,
     )
 
     await _run_worker(worker)

@@ -5,16 +5,13 @@ Loads PDF files from a directory, splits them into chunks, embeds each chunk
 via AWS Bedrock, and stores the vectors in Postgres (pgvector).
 
 Run from the project root:
-    python -m backend.src.helpers.ingest --docs path/to/your/docs/
+    python -m backend.src.helpers.ingest --docs "path/to/your/docs/"
 
 Optional flags:
     --chunk-size     Token target per chunk (default 800)
     --chunk-overlap  Overlap between consecutive chunks (default 100)
     --clear          Drop and recreate the collection before ingesting
 
-Requirements (beyond the main app dependencies):
-    psycopg[binary]>=3.0.0   <- langchain-postgres needs the psycopg3 driver
-    Install with: pip install "psycopg[binary]"
 """
 import argparse
 import logging

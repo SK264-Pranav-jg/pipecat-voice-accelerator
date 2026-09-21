@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pipecat Voice Accelerator — Test Client</title>
+  <title>Pipecat Voice Accelerator — Voice Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -20,34 +20,103 @@
         </span>
         <div>
           <h1>Voice Accelerator</h1>
-          <p class="subtitle">Browser test client </p>
+          <p class="subtitle">Real-time voice console</p>
         </div>
       </div>
 
-      <div class="status-row">
-        <span id="status-dot" class="dot dot-idle"></span>
-        <span id="status-text">Idle</span>
+      <!-- Mode Switcher Tabs -->
+      <div class="mode-tabs" role="tablist">
+        <button id="tab-webrtc" class="tab-btn active" role="tab" aria-selected="true" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+            <path d="M2 12h20"></path>
+          </svg>
+          WebRTC
+        </button>
+        <button id="tab-vobiz" class="tab-btn" role="tab" aria-selected="false" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          Phone (Vobiz)
+        </button>
       </div>
 
-      <div class="controls">
-        <button id="connect-btn">Connect</button>
-        <button id="disconnect-btn" disabled>Disconnect</button>
+      <!-- PANEL 1: Browser WebRTC -->
+      <div id="panel-webrtc" class="mode-panel active">
+        <div class="status-row">
+          <span id="status-dot" class="dot dot-idle"></span>
+          <span id="status-text">Idle</span>
+        </div>
+
+        <label class="field-label">
+          Your Name <span class="field-hint">(optional)</span>
+          <input id="webrtc-caller-name" type="text" placeholder="e.g. Alice" />
+        </label>
+
+        <div class="controls">
+          <button id="connect-btn" class="btn-primary" type="button">Connect</button>
+          <button id="disconnect-btn" class="btn-secondary" type="button" disabled>Disconnect</button>
+        </div>
+
+        <audio id="remote-audio" autoplay></audio>
+
+        <div class="activity-row">
+          <span id="user-activity" class="activity-indicator"><span class="activity-dot"></span>You</span>
+          <span id="bot-activity" class="activity-indicator"><span class="activity-dot"></span>Bot</span>
+        </div>
       </div>
 
-      <label class="backend-url-label">
+      <!-- PANEL 2: Vobiz Telephony -->
+      <div id="panel-vobiz" class="mode-panel">
+        <div class="status-row">
+          <span id="vobiz-status-dot" class="dot dot-idle"></span>
+          <span id="vobiz-status-text">Ready for outbound call</span>
+        </div>
+
+        <label class="field-label">
+          Destination Phone Number <span class="required">*</span>
+          <input id="vobiz-phone" type="tel" placeholder="+1234567890" />
+        </label>
+
+        <label class="field-label">
+          Recipient Name <span class="field-hint">(optional)</span>
+          <input id="vobiz-caller-name" type="text" placeholder="e.g. John Doe" />
+        </label>
+
+        <label class="field-label">
+          From Caller ID <span class="field-hint">(optional)</span>
+          <input id="vobiz-from-number" type="tel" placeholder="Default VOBIZ_PHONE_NUMBER" />
+        </label>
+
+        <div class="controls">
+          <button id="vobiz-call-btn" class="btn-primary" type="button">Call Phone</button>
+          <button id="vobiz-hangup-btn" class="btn-danger" type="button" disabled>Hangup</button>
+        </div>
+
+        <div id="vobiz-call-info" class="call-info-box" hidden>
+          <div class="info-row">
+            <span class="info-label">Call ID:</span>
+            <code id="info-call-id" class="info-val">-</code>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Vobiz UUID:</span>
+            <code id="info-call-uuid" class="info-val">-</code>
+          </div>
+          <div class="info-note">
+            Outbound call triggered. Vobiz will hit <code>/answer</code> upon pickup to stream audio to <code>/ws</code>.
+          </div>
+        </div>
+      </div>
+
+      <!-- Global Settings: Backend URL -->
+      <label class="field-label backend-url-label">
         Backend URL
         <input id="backend-url" type="text" value="http://127.0.0.1:8080" />
       </label>
 
-      <audio id="remote-audio" autoplay></audio>
-
-      <div class="activity-row">
-        <span id="user-activity" class="activity-indicator"><span class="activity-dot"></span>You</span>
-        <span id="bot-activity" class="activity-indicator"><span class="activity-dot"></span>Bot</span>
-      </div>
-
       <details class="log-details">
-        <summary>Connection log</summary>
+        <summary>Console & Event Log</summary>
         <ul id="log"></ul>
       </details>
     </main>

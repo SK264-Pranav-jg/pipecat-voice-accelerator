@@ -7,15 +7,37 @@
 import { PipecatClient, RTVIEvent } from "https://esm.sh/@pipecat-ai/client-js@1.7.0";
 import { SmallWebRTCTransport } from "https://esm.sh/@pipecat-ai/small-webrtc-transport@1.7.0";
 
+// Mode switcher elements
+const tabWebRtc = document.getElementById("tab-webrtc");
+const tabVobiz = document.getElementById("tab-vobiz");
+const panelWebRtc = document.getElementById("panel-webrtc");
+const panelVobiz = document.getElementById("panel-vobiz");
+
+// WebRTC mode elements
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
+const webrtcCallerNameInput = document.getElementById("webrtc-caller-name");
 const connectBtn = document.getElementById("connect-btn");
 const disconnectBtn = document.getElementById("disconnect-btn");
-const backendUrlInput = document.getElementById("backend-url");
 const remoteAudio = document.getElementById("remote-audio");
-const logEl = document.getElementById("log");
 const userActivityEl = document.getElementById("user-activity");
 const botActivityEl = document.getElementById("bot-activity");
+
+// Vobiz telephony mode elements
+const vobizStatusDot = document.getElementById("vobiz-status-dot");
+const vobizStatusText = document.getElementById("vobiz-status-text");
+const vobizPhoneInput = document.getElementById("vobiz-phone");
+const vobizCallerNameInput = document.getElementById("vobiz-caller-name");
+const vobizFromNumberInput = document.getElementById("vobiz-from-number");
+const vobizCallBtn = document.getElementById("vobiz-call-btn");
+const vobizHangupBtn = document.getElementById("vobiz-hangup-btn");
+const vobizCallInfoBox = document.getElementById("vobiz-call-info");
+const infoCallId = document.getElementById("info-call-id");
+const infoCallUuid = document.getElementById("info-call-uuid");
+
+// Shared & Transcript elements
+const backendUrlInput = document.getElementById("backend-url");
+const logEl = document.getElementById("log");
 const transcriptEl = document.getElementById("transcript");
 const transcriptEndBanner = document.getElementById("transcript-end-banner");
 const copyTranscriptBtn = document.getElementById("copy-transcript-btn");
@@ -23,9 +45,37 @@ const downloadTranscriptBtn = document.getElementById("download-transcript-btn")
 const clearTranscriptBtn = document.getElementById("clear-transcript-btn");
 
 let client = null;
+let activeVobizCallId = null;
 
 // ---------------------------------------------------------------------------
-// Connection log
+// Mode switching (WebRTC vs Telephony)
+// ---------------------------------------------------------------------------
+
+function setMode(mode) {
+  if (mode === "webrtc") {
+    tabWebRtc.classList.add("active");
+    tabWebRtc.setAttribute("aria-selected", "true");
+    tabVobiz.classList.remove("active");
+    tabVobiz.setAttribute("aria-selected", "false");
+    panelWebRtc.classList.add("active");
+    panelVobiz.classList.remove("active");
+    log("Switched to Browser (WebRTC) mode");
+  } else {
+    tabVobiz.classList.add("active");
+    tabVobiz.setAttribute("aria-selected", "true");
+    tabWebRtc.classList.remove("active");
+    tabWebRtc.setAttribute("aria-selected", "false");
+    panelVobiz.classList.add("active");
+    panelWebRtc.classList.remove("active");
+    log("Switched to Telephony (Vobiz Outbound) mode");
+  }
+}
+
+tabWebRtc.addEventListener("click", () => setMode("webrtc"));
+tabVobiz.addEventListener("click", () => setMode("vobiz"));
+
+// ---------------------------------------------------------------------------
+// Connection log & status
 // ---------------------------------------------------------------------------
 
 function log(message, isError = false) {
@@ -43,6 +93,11 @@ function setStatus(state, label) {
   statusText.textContent = label;
 }
 
+function setVobizStatus(state, label) {
+  vobizStatusDot.className = `dot dot-${state}`;
+  vobizStatusText.textContent = label;
+}
+
 // ---------------------------------------------------------------------------
 // Speaking activity indicators
 // ---------------------------------------------------------------------------
@@ -53,12 +108,6 @@ function setSpeaking(el, isSpeaking) {
 
 // ---------------------------------------------------------------------------
 // Transcript rendering
-//
-// Turns are built from RTVI events, not raw partial text: user turns track
-// interim vs. final transcription state, bot turns are bracketed by
-// bot-llm-started/stopped and accumulate bot-output segments in place (keyed
-// by segment_id, so a growing word-level segment updates rather than
-// duplicates).
 // ---------------------------------------------------------------------------
 
 let currentUserTurnEl = null;
@@ -132,16 +181,10 @@ function handleBotLlmStarted() {
 }
 
 function handleBotOutput(data) {
-  // Only render what the bot will actually say — skip unspoken side-channel content.
-  // `spoken` is a deprecated v1-protocol field that is only true on the
-  // push_text_frames path (e.g. Cartesia); ElevenLabs and other word-timestamp
-  // TTS services report via `will_be_spoken` instead, so that's the one to trust.
   if (data.will_be_spoken === false) return;
 
   clearEmptyState();
   if (!currentBotTurnEl) {
-    // Bot output arrived without a preceding bot-llm-started (can happen for
-    // very short/cached responses) — start a turn on demand.
     currentBotSegments = new Map();
     currentBotTurnEl = createTurnEl("bot");
     currentBotTurnEl.classList.add("interim");
@@ -163,8 +206,6 @@ function handleBotLlmStopped() {
 }
 
 function finalizeTranscriptOnDisconnect() {
-  // Whatever was mid-flight when the call ended is still worth keeping —
-  // just drop the "in progress" styling rather than discarding the text.
   if (currentUserTurnEl) {
     currentUserTurnEl.classList.remove("interim");
     currentUserTurnEl = null;
@@ -215,7 +256,7 @@ clearTranscriptBtn.addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Connect / disconnect
+// Browser WebRTC Connect / Disconnect
 // ---------------------------------------------------------------------------
 
 async function connect() {
@@ -225,26 +266,25 @@ async function connect() {
 
   const backendUrl = backendUrlInput.value.trim().replace(/\/$/, "");
   const webrtcUrl = `${backendUrl}/api/offer`;
+  const callerName = webrtcCallerNameInput.value.trim();
 
   client = new PipecatClient({
     transport: new SmallWebRTCTransport({
-      // Same-machine/same-LAN testing works with no ICE servers. Add a STUN
-      // entry here if you're testing across networks (see frontend/README.md).
       iceServers: [],
     }),
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onTransportStateChanged: (state) => log(`Transport state: ${state}`),
-      onConnected: () => log("Client connected"),
-      onBotConnected: () => log("Bot connected"),
+      onTransportStateChanged: (state) => log(`[WebRTC] Transport state: ${state}`),
+      onConnected: () => log("[WebRTC] Client connected"),
+      onBotConnected: () => log("[WebRTC] Bot connected"),
       onBotReady: () => {
-        log("Bot ready — say hello");
+        log("[WebRTC] Bot ready — say hello");
         setStatus("connected", "Connected — say hello");
         disconnectBtn.disabled = false;
       },
       onDisconnected: () => {
-        log("Disconnected");
+        log("[WebRTC] Disconnected");
         setStatus("idle", "Idle");
         connectBtn.disabled = false;
         disconnectBtn.disabled = true;
@@ -254,7 +294,7 @@ async function connect() {
         finalizeTranscriptOnDisconnect();
       },
       onError: (message) => {
-        log(`Error: ${JSON.stringify(message)}`, true);
+        log(`[WebRTC] Error: ${JSON.stringify(message)}`, true);
         setStatus("error", "Error — see log");
       },
 
@@ -274,29 +314,129 @@ async function connect() {
 
   client.on(RTVIEvent.TrackStarted, (track, participant) => {
     if (track.kind !== "audio" || participant?.local) return;
-    log("Receiving bot audio track");
+    log("[WebRTC] Receiving bot audio track");
     remoteAudio.srcObject = new MediaStream([track]);
   });
 
   try {
-    await client.connect({ webrtcUrl });
+    const requestData = callerName ? { caller_name: callerName } : undefined;
+    await client.connect({ webrtcUrl, requestData });
+    if (callerName) {
+      log(`[WebRTC] Joining as caller: "${callerName}"`);
+    }
   } catch (err) {
-    log(`Connect failed: ${err.message || err}`, true);
+    log(`[WebRTC] Connect failed: ${err.message || err}`, true);
     setStatus("error", "Connect failed");
     connectBtn.disabled = false;
   }
 }
 
 async function disconnect() {
-  log("Disconnecting...");
+  log("[WebRTC] Disconnecting...");
   disconnectBtn.disabled = true;
   try {
     await client?.disconnect();
   } catch (err) {
-    log(`Disconnect error: ${err.message || err}`, true);
+    log(`[WebRTC] Disconnect error: ${err.message || err}`, true);
   }
   client = null;
 }
 
 connectBtn.addEventListener("click", connect);
 disconnectBtn.addEventListener("click", disconnect);
+
+// ---------------------------------------------------------------------------
+// Vobiz Telephony (Outbound Call & Hangup)
+// ---------------------------------------------------------------------------
+
+async function placeVobizCall() {
+  const phone = vobizPhoneInput.value.trim();
+  if (!phone) {
+    alert("Please enter a destination phone number (e.g. +1234567890)");
+    vobizPhoneInput.focus();
+    return;
+  }
+
+  const backendUrl = backendUrlInput.value.trim().replace(/\/$/, "");
+  const callerName = vobizCallerNameInput.value.trim();
+  const fromNumber = vobizFromNumberInput.value.trim();
+
+  vobizCallBtn.disabled = true;
+  setVobizStatus("connecting", "Dispatching call...");
+  log(`[Vobiz] Placing outbound call to ${phone}...`);
+
+  try {
+    const resp = await fetch(`${backendUrl}/vobiz/calls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone_number: phone,
+        caller_name: callerName || null,
+        from_number: fromNumber || null,
+      }),
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.detail || `Server returned ${resp.status}`);
+    }
+
+    activeVobizCallId = data.call_id;
+    infoCallId.textContent = data.call_id;
+    infoCallUuid.textContent = data.call_uuid || "N/A";
+    vobizCallInfoBox.hidden = false;
+
+    setVobizStatus("connected", "Call dispatched (ringing/active)");
+    vobizHangupBtn.disabled = false;
+    log(`[Vobiz] Call dispatched! call_id=${data.call_id} uuid=${data.call_uuid}`);
+
+    // Add notice to transcript panel
+    clearEmptyState();
+    const noteDiv = document.createElement("div");
+    noteDiv.className = "transcript-turn bot";
+    const label = document.createElement("span");
+    label.className = "turn-label";
+    label.textContent = "Vobiz Telephony";
+    const text = document.createElement("span");
+    text.className = "turn-text";
+    text.textContent = `Outbound phone call triggered to ${phone} (${callerName || "Caller"}). When answered, Vobiz will connect to /ws to stream audio into the voice pipeline. Transcript is logged in PostgreSQL.`;
+    noteDiv.appendChild(label);
+    noteDiv.appendChild(text);
+    transcriptEl.appendChild(noteDiv);
+    scrollTranscriptToEnd();
+
+  } catch (err) {
+    log(`[Vobiz] Call failed: ${err.message || err}`, true);
+    setVobizStatus("error", "Call failed");
+    vobizCallBtn.disabled = false;
+    alert(`Failed to place outbound call: ${err.message || err}`);
+  }
+}
+
+async function hangupVobizCall() {
+  if (!activeVobizCallId) return;
+
+  const backendUrl = backendUrlInput.value.trim().replace(/\/$/, "");
+  vobizHangupBtn.disabled = true;
+  setVobizStatus("connecting", "Disconnecting call...");
+  log(`[Vobiz] Terminating call ${activeVobizCallId}...`);
+
+  try {
+    const resp = await fetch(`${backendUrl}/vobiz/calls/${activeVobizCallId}/hangup`, {
+      method: "POST",
+    });
+    const data = await resp.json();
+    log(`[Vobiz] Hangup response: ${JSON.stringify(data)}`);
+    setVobizStatus("idle", "Call disconnected");
+  } catch (err) {
+    log(`[Vobiz] Hangup error: ${err.message || err}`, true);
+    setVobizStatus("idle", "Disconnect requested");
+  } finally {
+    vobizCallBtn.disabled = false;
+    vobizHangupBtn.disabled = true;
+    activeVobizCallId = null;
+  }
+}
+
+vobizCallBtn.addEventListener("click", placeVobizCall);
+vobizHangupBtn.addEventListener("click", hangupVobizCall);
