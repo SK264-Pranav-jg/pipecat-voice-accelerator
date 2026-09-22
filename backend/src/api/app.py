@@ -25,9 +25,6 @@ from backend.src.pipecat.pipeline import build_pipeline, transport_params
 from backend.src.db.session import init_db, close_db
 from backend.src.api.vobiz_telephony import vobiz_telephony_router, get_active_vobiz_call
 
-# logging — without this, every logging.getLogger(...).info(...) call in the app
-# (provider selection, call lifecycle, latency) is silently dropped: the root
-# logger has no handler by default, so its effective level is WARNING.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -72,6 +69,7 @@ app.add_middleware(
 app.include_router(vobiz_telephony_router)
 
 
+# runs the pipeline worker 
 async def _run_worker(worker):
     """Run a single call's pipeline to completion. handle_sigint/term stay off — this
     process hosts many concurrent calls, and uvicorn already owns process signals."""
@@ -132,8 +130,6 @@ async def websocket_endpoint(websocket: WebSocket):
     stream_id = start_info["stream_id"]
 
     # Prefer call_id passed as query parameter in the Stream XML, fall back to start packet or streamId.
-    # Vobiz sometimes fails to unescape the XML-escaped "&" in the Stream URL, which shifts the next
-    # query key from "call_id" to "amp;call_id" — same workaround already applied to /answer.
     query_call_id = websocket.query_params.get("call_id") or websocket.query_params.get("amp;call_id")
     call_id = query_call_id or start_info["call_id"] or stream_id
 
@@ -159,9 +155,6 @@ async def websocket_endpoint(websocket: WebSocket):
     negotiated_rate = start_info["sample_rate"] or settings.vobiz_sample_rate
     negotiated_encoding = start_info["encoding"] or settings.vobiz_encoding
 
-    # Vobiz's start event is the ground truth for wire format — log what it actually declared
-    # (vs. our env defaults) so a garbled/misdecoded STT transcript can be diagnosed from this
-    # line alone instead of digging through the serializer's own warning/error logs.
     logger.info(
         f"[ws] Vobiz call_id={call_id} stream_id={stream_id} "
         f"declared_encoding={start_info['encoding']!r} declared_sample_rate={start_info['sample_rate']!r} "

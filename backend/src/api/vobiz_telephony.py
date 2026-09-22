@@ -146,6 +146,7 @@ async def vobiz_answer_post(request: Request, call_id: Optional[str] = None, Cal
     return await _handle_answer_webhook(request, call_id=call_id, CallUUID=CallUUID)
 
 
+# additional endpoints for fallback to the answer webhook 
 @vobiz_telephony_router.get("/vobiz/answer", include_in_schema=False)
 @vobiz_telephony_router.post("/vobiz/answer", include_in_schema=False)
 async def vobiz_answer_alias(request: Request, call_id: Optional[str] = None, CallUUID: Optional[str] = None):

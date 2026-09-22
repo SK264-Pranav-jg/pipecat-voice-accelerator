@@ -24,7 +24,10 @@ from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import BaseTransport , TransportParams 
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport , FastAPIWebsocketParams 
 from pipecat.transcriptions.language import Language
-from pipecat.frames.frames import LLMMessagesAppendFrame , TTSSpeakFrame , LLMRunFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame , TTSSpeakFrame , LLMRunFrame , EndWorkerFrame
+
+# greeting interruption strategy 
+from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy 
 
 # rnn filter 
 from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
@@ -61,6 +64,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService , DeepgramSTTSettin
 from pipecat.services.deepgram.tts import DeepgramTTSService , DeepgramTTSSettings 
 
 # VAD imports
+# Silero vad only supports 16khz and 8khz so adjust accordingly 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 
@@ -103,10 +107,19 @@ transport_params = {
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        # background noise filter 
+        # background noise filter
         audio_in_filter=RNNoiseFilter(),
         audio_in_sample_rate=16000,
         audio_out_sample_rate=16000,
+        # default is 10.0s — if the client disconnects while the bot is mid-response, the
+        # output transport still has to try writing that already-queued audio somewhere and
+        # blocks for the full timeout before giving up on the dead connection. Our
+        # on_client_disconnected handler fires immediately, but EndWorkerFrame queues behind
+        # whatever TTS/output frames were already in flight, so this timeout is what actually
+        # gates teardown in that case. Shortened so a truly dead peer is detected in a few
+        # seconds instead of ~10-20s; if you see real (but slow) connections getting dropped
+        # under normal network hiccups, raise this back up.
+        audio_out_write_timeout_secs=3.0,
         # background ambience sound (change the path of the file ) 
         # audio_out_mixer=SoundfileMixer(
         #     sound_files={"office": str(AUDIO_DIR)},
@@ -125,10 +138,13 @@ transport_params = {
         add_wav_header=False,
         audio_in_sample_rate=8000,
         audio_out_sample_rate=8000,
+        # see the webrtc entry above — same reasoning applies if the callee hangs up while
+        # the bot is mid-response.
+        audio_out_write_timeout_secs=3.0,
         # background/line noise filter — RNNoise internally resamples 8kHz <-> 48kHz,
         # so it works fine at telephony rates. Suppressing line hiss/comfort noise here
         # helps VAD get a clean speaking/not-speaking signal instead of flickering on noise.
-        audio_in_filter=RNNoiseFilter(),
+        # audio_in_filter=RNNoiseFilter(),
         # background ambience sound (change the path of the file ) 
         # audio_out_mixer=SoundfileMixer(
         #     sound_files={"office": str(AUDIO_DIR)},
@@ -194,16 +210,6 @@ async def build_pipeline(
         )
         logger.info("[pipeline] cartesia stt initiated")
     
-    elif settings.stt_provider == "deepgram" : 
-        logger.info("[pipeline] Deepgram stt chosen")
-        stt = DeepgramSTTService(
-            api_key=settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else "",
-            sample_rate=sample_rate , 
-            settings=DeepgramSTTSettings(
-                # additional settings to be added here
-            )
-        )
-    
     else: 
         logger.info("[pipeline] elevenlabs stt chosen")
         stt = ElevenLabsRealtimeSTTService(
@@ -266,29 +272,20 @@ async def build_pipeline(
             ), 
         )
     
-    # silero vad builder
-    # these are the pipecat framework defaults, tuned for clean wideband mic audio.
-    # Vobiz telephony audio is 8kHz + mu-law compressed and noticeably quieter/noisier
-    # after codec compression, so a brief one-word reply ("yeah") can fail to hold
-    # confidence/volume for the full start_secs window and never register as speech,
-    # and line noise can keep VAD flickering between speaking/not-speaking, stalling
-    # the user turn until a loud, unambiguous utterance forces a clean transition.
-    # Lower thresholds here are a starting point — validate against real test calls
-    # and tune further; going too low risks false triggers from line noise/comfort noise.
-    if transport_type == "websocket":  # Vobiz telephony
-        vad_params = VADParams(
-            confidence=0.6,      # slightly more sensitive on compressed 8kHz audio
-            start_secs=0.1,      # confirm speech start faster — catches short replies
-            stop_secs=0.3,       # a bit more tolerant of brief noise-driven flicker
-            min_volume=0.4,      # phone audio is quieter than a browser mic after codec loss
-        )
-    else:  # browser/WebRTC mic — clean wideband audio, keep framework defaults
-        vad_params = VADParams(
-            confidence=0.7,
-            start_secs=0.2,
-            stop_secs=0.2,
-            min_volume=0.6,
-        )
+    # silero vad builder — framework defaults for both transports.
+    # A previous attempt lowered these for the Vobiz path (confidence/min_volume down) to
+    # catch short replies like "yeah" faster, but real test calls showed it backfired: VAD
+    # started firing on the telephony line's own noise floor/comfort noise rather than actual
+    # speech, and Deepgram correctly returned empty transcripts for those false triggers —
+    # producing calls where the bot never got a single usable transcript. Reverted to the
+    # known-working defaults; if short replies still get missed, tune up from here deliberately
+    # and validate against a real call each time rather than guessing further downward.
+    vad_params = VADParams(
+        confidence=0.7,
+        start_secs=0.2,
+        stop_secs=0.2,
+        min_volume=0.6,
+    )
     silero_vad = SileroVADAnalyzer(params=vad_params)
 
 
@@ -301,12 +298,14 @@ async def build_pipeline(
         settings=AWSBedrockLLMService.Settings(
             model=settings.agent_model_id or "", 
             # enabling prompt caching for models that support it 
-            enable_prompt_caching=True,
+            # enable_prompt_caching=True,
             # system prompt loaded from prompts module 
             system_instruction=return_prompt() , 
-            max_tokens=300,
+            max_tokens=100,
         )
     )
+
+    # gemini 
 
     # this part holds the short term memmory of the conversation in-memory
     conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session), query_knowledge_base])
@@ -318,10 +317,14 @@ async def build_pipeline(
             vad_analyzer=silero_vad ,
             # trigger idle handler after 5 seconds of silence
             user_idle_timeout=5.0 ,
+            # use this when you don't want the user to interrupt the greeting message  
+            user_mute_strategies=[
+                MuteUntilFirstBotCompleteUserMuteStrategy(),
+            ], 
             # silence-timeout turn end instead of the default local Smart Turn model,
             # for lower and more predictable turn-taking latency
             user_turn_strategies=UserTurnStrategies(
-                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)]
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
             ),
         ),
         # configuring assistant aggregator  
@@ -385,7 +388,7 @@ async def build_pipeline(
 
     # service/provider errors (bad API keys, expired credentials, reconnect
     # failures, etc.) are relayed to the client over the data channel but are
-    # NOT printed here by default — without this handler, this terminal stays
+    # not printed here by default — without this handler, this terminal stays
     # silent even while the browser shows real errors.
     @worker.event_handler("on_pipeline_error")
     async def on_pipeline_error(worker, frame):
@@ -415,12 +418,19 @@ async def build_pipeline(
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport , client):
         logger.info("Client connected - starting the conversation")
-        # greeting_instruction = {
-        #     "role" : "developer" ,
-        #     "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 20 words" ,
-        # }
-        # await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
-        await worker.queue_frames([TTSSpeakFrame("Hello this is Pulse calling to assist you ! ")])
+        greeting_instruction = {
+            "role" : "developer" ,
+            "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 10 words" ,
+        }
+        await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+        # await worker.queue_frames([TTSSpeakFrame(f"Hello this is Pulse calling to assist you ! ")])
+
+    # closing connections 
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info(f"[pipeline] call={call_id} client disconnected — ending pipeline immediately")
+        call_session.end_reason = "client_disconnected"
+        await worker.queue_frames([EndWorkerFrame()])
 
     # transcript capture — one row per turn (see backend/src/db/models.py for why
     # this isn't a single growing column). Persisted off the frame path via
@@ -465,7 +475,7 @@ async def build_pipeline(
         # this short acknowledgement instruction instead.
         acknowledgement = await service.run_inference(
             ack_context,
-            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. mix and match it dynamically.",
+            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. Don't mention the tool or process."
         )
         if acknowledgement:
             await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))

@@ -14,9 +14,11 @@ class IdleHandler:
         self._retry_count = 0
         self._call_session = call_session
 
+    # once the user starts speaking reset the counter
     async def reset(self): 
         self._retry_count = 0 
 
+    # increment the counter for every idle detector trigger 
     async def handle_idle(self , aggregator): 
         self._retry_count += 1
 
@@ -38,7 +40,7 @@ class IdleHandler:
             # third attempt so end the call gracefully
             message = {
                 "role" : "developer" ,
-                "content" : "Seems like the caller is not responding and could be busy , thank them and say a finishing statement gracefully"
+                "content" : "Acknowledge that this could be due to a faulty connection or the caller might be busy , Seems like the caller is not responding and could be busy , thank them and say a finishing statement gracefully"
             }
             if self._call_session is not None:
                 self._call_session.end_reason = "idle_timeout"

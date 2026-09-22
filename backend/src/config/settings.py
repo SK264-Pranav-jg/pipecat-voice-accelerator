@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import Field, SecretStr , AliasChoices , ValidationInfo , computed_field , field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# place the .env file inside the backend folder of the project 
 # Anchored to backend/.env regardless of the process's current working directory —
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
