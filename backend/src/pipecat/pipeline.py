@@ -272,14 +272,7 @@ async def build_pipeline(
             ), 
         )
     
-    # silero vad builder — framework defaults for both transports.
-    # A previous attempt lowered these for the Vobiz path (confidence/min_volume down) to
-    # catch short replies like "yeah" faster, but real test calls showed it backfired: VAD
-    # started firing on the telephony line's own noise floor/comfort noise rather than actual
-    # speech, and Deepgram correctly returned empty transcripts for those false triggers —
-    # producing calls where the bot never got a single usable transcript. Reverted to the
-    # known-working defaults; if short replies still get missed, tune up from here deliberately
-    # and validate against a real call each time rather than guessing further downward.
+    # silero vad builder 
     vad_params = VADParams(
         confidence=0.7,
         start_secs=0.2,
@@ -321,8 +314,7 @@ async def build_pipeline(
             user_mute_strategies=[
                 MuteUntilFirstBotCompleteUserMuteStrategy(),
             ], 
-            # silence-timeout turn end instead of the default local Smart Turn model,
-            # for lower and more predictable turn-taking latency
+            # for lower and more predictable turn-taking 
             user_turn_strategies=UserTurnStrategies(
                 stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
             ),
