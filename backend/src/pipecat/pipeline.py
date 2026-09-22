@@ -47,6 +47,9 @@ from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 # aws llm 
 from pipecat.services.aws.llm import AWSBedrockLLMService , AWSBedrockLLMSettings 
 
+# google llm service import (optional) 
+from pipecat.services.google.llm import GoogleLLMService , GoogleLLMSettings 
+
 # eleven labs services import 
 from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService , ElevenLabsRealtimeSTTSettings , CommitStrategy 
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService , ElevenLabsTTSSettings 
@@ -283,22 +286,31 @@ async def build_pipeline(
 
 
     # llm config in pipeline 
-    llm = AWSBedrockLLMService(
-        aws_access_key=settings.aws_access_key_id or "", 
-        aws_secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else "",
-        aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
-        aws_region=settings.aws_region or "ap-south-1",
-        settings=AWSBedrockLLMService.Settings(
-            model=settings.agent_model_id or "", 
-            # enabling prompt caching for models that support it 
-            # enable_prompt_caching=True,
-            # system prompt loaded from prompts module 
-            system_instruction=return_prompt() , 
-            max_tokens=100,
-        )
-    )
+    # llm = AWSBedrockLLMService(
+    #     aws_access_key=settings.aws_access_key_id or "", 
+    #     aws_secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else "",
+    #     aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
+    #     aws_region=settings.aws_region or "ap-south-1",
+    #     settings=AWSBedrockLLMService.Settings(
+    #         model=settings.agent_model_id or "", 
+    #         # enabling prompt caching for models that support it 
+    #         # enable_prompt_caching=True,
+    #         # system prompt loaded from prompts module 
+    #         system_instruction=return_prompt() , 
+    #         max_tokens=100,
+    #     )
+    # )
 
     # gemini 
+    llm = GoogleLLMService(
+        api_key=settings.gemini_api_key.get_secret_value() , 
+        settings=GoogleLLMSettings(
+            model="gemini-3.6-flash" , 
+            system_instruction=return_prompt() ,
+            max_tokens=100, 
+
+        )
+    )
 
     # this part holds the short term memmory of the conversation in-memory
     conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session), query_knowledge_base])
@@ -310,14 +322,24 @@ async def build_pipeline(
             vad_analyzer=silero_vad ,
             # trigger idle handler after 5 seconds of silence
             user_idle_timeout=5.0 ,
-            # use this when you don't want the user to interrupt the greeting message  
+            # use this when you don't want the user to interrupt the greeting message
             user_mute_strategies=[
                 MuteUntilFirstBotCompleteUserMuteStrategy(),
-            ], 
-            # for lower and more predictable turn-taking 
+            ],
+            # for lower and more predictable turn-taking
             user_turn_strategies=UserTurnStrategies(
                 stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
             ),
+            # watchdog: if VAD/transcription opens a turn but nothing resolves it (no STT
+            # result at all, from any provider, under real-world network/API jitter) within
+            # this many seconds, the framework force-closes the turn with no content and
+            # (silently, by default) skips inference entirely — that's the "bot just goes
+            # quiet, have to repeat myself" symptom, and it's not provider-specific since this
+            # watchdog lives above the STT layer. Framework default is 5.0s; raised a bit to
+            # give slow STT responses more room before giving up. on_user_turn_stop_timeout
+            # below is the other half of the fix — it turns "silently do nothing" into an
+            # actual spoken recovery instead of dead air.
+            user_turn_stop_timeout=8.0 ,
         ),
         # configuring assistant aggregator  
         # assistant_params=LLMAssistantAggregatorParams(
@@ -405,6 +427,20 @@ async def build_pipeline(
     @user_aggregator.event_handler("on_user_turn_started")
     async def on_user_turn_started(aggregator, strategy):
         await idlehandler.reset()
+
+    # fires when a turn opened (VAD/transcription said the caller started talking) but no
+    # stop strategy ever resolved it within user_turn_stop_timeout — most commonly, STT never
+    # produced even an interim transcript in time. Left unhandled, the framework silently
+    # drops the turn with zero content and never calls the LLM: the caller spoke, got no
+    # response, and has no idea why. This turns that dead silence into an actual spoken
+    # recovery instead.
+    @user_aggregator.event_handler("on_user_turn_stop_timeout")
+    async def on_user_turn_stop_timeout(aggregator):
+        message = {
+            "role": "developer",
+            "content": "You didn't catch what the caller just said — their speech never came through. Briefly and politely ask them to repeat themselves.",
+        }
+        await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
 
     # add initial greeting soon as the call connects
     @transport.event_handler("on_client_connected")

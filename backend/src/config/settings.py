@@ -38,6 +38,10 @@ class Settings(BaseSettings):
         default=None, description="API for deepgram voice services"
     )
 
+    gemini_api_key : Optional[SecretStr] = Field(
+        default=None , description="LLM Service gemini api key"
+    )
+
     # Voice ID
     elevenlabs_voice_id: Optional[str] = Field(
         default=None, description="Default ElevenLabs Voice ID"
