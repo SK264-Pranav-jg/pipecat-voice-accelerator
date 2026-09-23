@@ -36,8 +36,9 @@ from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.serializers.vobiz import VobizFrameSerializer , parse_vobiz_start 
 
 # strands agents plugin , (plugin to be used in case of using strands agent instead pipecat native LLMServices) 
+# use this when migrating from LLMServices to Strands Agents (do not implement Custom Classes) 
 # please refrain from using strands agents unless or until non negotiable since it loses a lot of event handlers and ease of adding features 
-# to the bot 
+# to the bot and could add additional latency 
 from pipecat.processors.frameworks.strands_agents import StrandsAgentsProcessor 
 
 # background ambience imports 
@@ -286,31 +287,31 @@ async def build_pipeline(
 
 
     # llm config in pipeline 
-    # llm = AWSBedrockLLMService(
-    #     aws_access_key=settings.aws_access_key_id or "", 
-    #     aws_secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else "",
-    #     aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
-    #     aws_region=settings.aws_region or "ap-south-1",
-    #     settings=AWSBedrockLLMService.Settings(
-    #         model=settings.agent_model_id or "", 
-    #         # enabling prompt caching for models that support it 
-    #         # enable_prompt_caching=True,
-    #         # system prompt loaded from prompts module 
-    #         system_instruction=return_prompt() , 
-    #         max_tokens=100,
-    #     )
-    # )
-
-    # gemini 
-    llm = GoogleLLMService(
-        api_key=settings.gemini_api_key.get_secret_value() , 
-        settings=GoogleLLMSettings(
-            model="gemini-3.6-flash" , 
-            system_instruction=return_prompt() ,
-            max_tokens=100, 
-
+    llm = AWSBedrockLLMService(
+        aws_access_key=settings.aws_access_key_id or "", 
+        aws_secret_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else "",
+        aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
+        aws_region=settings.aws_region or "ap-south-1",
+        settings=AWSBedrockLLMService.Settings(
+            model=settings.agent_model_id or "", 
+            # enabling prompt caching for models that support it (claude models) 
+            # enable_prompt_caching=True,
+            # system prompt loaded from prompts module 
+            system_instruction=return_prompt() , 
+            max_tokens=100,
         )
     )
+
+    # gemini 
+    # llm = GoogleLLMService(
+    #     api_key=settings.gemini_api_key.get_secret_value() , 
+    #     settings=GoogleLLMSettings(
+    #         model="gemini-3.6-flash" , 
+    #         system_instruction=return_prompt() ,
+    #         max_tokens=100, 
+
+    #     )
+    # )
 
     # this part holds the short term memmory of the conversation in-memory
     conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session), query_knowledge_base])
@@ -339,26 +340,26 @@ async def build_pipeline(
             # give slow STT responses more room before giving up. on_user_turn_stop_timeout
             # below is the other half of the fix — it turns "silently do nothing" into an
             # actual spoken recovery instead of dead air.
-            user_turn_stop_timeout=8.0 ,
+            user_turn_stop_timeout=5.0 ,
         ),
         # configuring assistant aggregator  
         # assistant_params=LLMAssistantAggregatorParams(
-            # for longer conversation creating conversation summarizers 
+            # # for longer conversation creating conversation summarizers 
             # enable_auto_context_summarization=True ,
-            # customising the behaviour of the context summarizer 
+            # # customising the behaviour of the context summarizer 
             # auto_context_summarization_config=LLMAutoContextSummarizationConfig(
             #     max_context_tokens=10000 , 
             #     max_unsummarized_messages=40 , 
-                # configs of the summary stored 
+               #  # configs of the summary stored 
                 # summary_config=LLMContextSummaryConfig(
-                    # the target summary size 
+                    ##  the target summary size 
                     # target_context_tokens=4000 , 
-                    # minimum number of messages to be kept in the summary uncompressed 
+                    # # minimum number of messages to be kept in the summary uncompressed 
                     # min_messages_after_summary=10, 
-                    # adding a custom summarization prompt if needed 
+                    # # adding a custom summarization prompt if needed 
                     # summarization_prompt="" , 
-                    # custom llm (smaller llm ) if needed for summarization 
-                    # use an LLM Service 
+                    # # ustom llm (smaller llm ) if needed for summarization 
+                    # # use an LLM Service 
                     # llm=None , 
             #     )
             # )
@@ -469,6 +470,9 @@ async def build_pipeline(
             asyncio.create_task(
                 add_message(db_call_id, call_session.next_sequence(), "user", message.content)
             )
+            logger.info("-------------------------")
+            logger.info(f"User said : {message.content}")
+            logger.info("-------------------------")
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
@@ -482,6 +486,9 @@ async def build_pipeline(
                     interrupted=message.interrupted,
                 )
             )
+            logger.info("-------------------------")
+            logger.info(f"Assistant said : {message.content}")
+            logger.info("-------------------------")
         
     @llm.event_handler("on_function_calls_started")
     async def on_function_calls_started(service,function_calls): 
