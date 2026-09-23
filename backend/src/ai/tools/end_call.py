@@ -7,6 +7,9 @@ from pipecat.adapters.schemas.direct_function import tool_options
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.frames.frames import EndWorkerFrame
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_end_call_tool(call_session=None):
     """Build the end-call tool bound to this call's session (for end-reason tracking)."""
@@ -30,6 +33,7 @@ def create_end_call_tool(call_session=None):
 
         Speak your farewell message FIRST, then call this tool in the same response turn.
         """
+        logger.info(f"Calling end call tool with call session {call_session}")
         if call_session is not None:
             call_session.end_reason = "user_ended"
 

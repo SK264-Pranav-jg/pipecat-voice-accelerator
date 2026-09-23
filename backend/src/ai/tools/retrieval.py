@@ -64,6 +64,8 @@ async def query_knowledge_base(params: FunctionCallParams, query: str):
     Args:
         query: The user's question or topic to search for in the knowledge base.
     """
+
+    logger.info(f"query_knowledge_base tool with query: {query}")
     try:
         vectorstore = _get_vectorstore()
 
