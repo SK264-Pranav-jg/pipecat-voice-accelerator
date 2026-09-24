@@ -41,6 +41,21 @@ async def lifespan(app: FastAPI):
     await init_db()
     app.state.session = aiohttp.ClientSession()
     yield
+    # /api/offer spawns each WebRTC call as a detached asyncio.create_task() — the HTTP
+    # request returns immediately, so uvicorn's own graceful-shutdown request tracking
+    # never sees these as outstanding work (unlike /ws, which runs the call directly
+    # inside the WebSocket handler coroutine that uvicorn does wait for). Without this,
+    # "Shutting down..." below can print while a WebRTC call is still fully active, and
+    # if that call's own cancellation-driven cleanup ever hangs, the whole process hangs
+    # with it and Ctrl+C never actually exits. Bounded wait_for so a stuck call delays
+    # shutdown by at most a few seconds instead of forever.
+    if _active_worker_tasks:
+        logger.info(f"Waiting for {len(_active_worker_tasks)} active call(s) to end...")
+        for task in _active_worker_tasks:
+            task.cancel()
+        _, pending = await asyncio.wait(_active_worker_tasks, timeout=10.0)
+        if pending:
+            logger.warning(f"{len(pending)} call(s) did not finish cleanup within 10s, proceeding anyway")
     if hasattr(app.state, "session"):
         await app.state.session.close()
     await webrtc_request_handler.close()
@@ -69,13 +84,25 @@ app.add_middleware(
 app.include_router(vobiz_telephony_router)
 
 
-# runs the pipeline worker 
+# runs the pipeline worker
 async def _run_worker(worker):
     """Run a single call's pipeline to completion. handle_sigint/term stay off — this
     process hosts many concurrent calls, and uvicorn already owns process signals."""
     runner = WorkerRunner(handle_sigint=False, handle_sigterm=False)
     await runner.add_workers(worker)
     await runner.run()
+
+
+# in-flight WebRTC call tasks — see the shutdown-wait comment in lifespan() above for why
+# these need to be tracked explicitly instead of left as fire-and-forget.
+_active_worker_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_worker(worker) -> asyncio.Task:
+    task = asyncio.create_task(_run_worker(worker))
+    _active_worker_tasks.add(task)
+    task.add_done_callback(_active_worker_tasks.discard)
+    return task
 
 
 @app.get("/")
@@ -105,7 +132,7 @@ async def offer(request: dict):
             provider="browser",
             caller_name=caller_name,
         )
-        asyncio.create_task(_run_worker(worker))
+        _spawn_worker(worker)
 
     answer = await webrtc_request_handler.handle_web_request(webrtc_request, on_new_connection)
     return answer
