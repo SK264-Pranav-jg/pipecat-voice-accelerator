@@ -510,7 +510,15 @@ async def build_pipeline(
         # this short acknowledgement instruction instead.
         acknowledgement = await service.run_inference(
             ack_context,
-            system_instruction="Generate a brief, natural acknowledgement (max 5-10 words) telling the caller you are looking something up. Don't mention the tool or process."
+            system_instruction="""
+            Generate a brief, natural acknowledgement to the caller's last statement.
+            Sound like a warm, attentive human support representative.
+
+            Do not mention tools, searches, databases, knowledge bases, fetching,
+            checking, processing, or waiting. Do not answer the question or ask one.
+
+            Use 3-8 words, vary the phrasing naturally, and return only the acknowledgement.
+            """, 
         )
         if acknowledgement:
             await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))
