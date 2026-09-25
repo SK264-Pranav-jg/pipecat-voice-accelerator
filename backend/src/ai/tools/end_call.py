@@ -7,61 +7,29 @@ from pipecat.adapters.schemas.direct_function import tool_options
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.frames.frames import EndWorkerFrame
 
-import logging
-
-logger = logging.getLogger(__name__)
 
 def create_end_call_tool(call_session=None):
     """Build the end-call tool bound to this call's session (for end-reason tracking)."""
 
     @tool_options(cancel_on_interruption=True)
     async def dynamic_end_call(params : FunctionCallParams):
+        """Disconnects the current phone call.
+
+        Call this tool ONLY on the final farewell turn when the conversation is completely finished:
+        1. Standard close: meeting is confirmed + you asked "Is there anything else?" + user answered no / goodbye. (Do NOT call when asking "Anything else?", only on the NEXT turn after they answer!).
+        2. Wrong number: user says it's a wrong number or they're not the person.
+        3. Confirmed disinterest: user clearly declined after pitch and confirmed no interest.
+        4. User is in a meeting / call back later: user said they can't talk, you acknowledged and said farewell.
+        5. 'Send me an email' follow-up: info requested, farewell spoken.
+        6. Hostile / asked to be removed from list: you acknowledged and said goodbye.
+
+        ABSOLUTELY FORBIDDEN — Do NOT call this tool for:
+        - While negotiating, discussing, or confirming the meeting day or time!
+        - If your turn asks ANY question (e.g. asking "is there anything else before we wrap up?", asking for day/time, asking for clarification). Calling end_call while asking a question hangs up on the user mid-sentence!
+        - Mid-conversation responses where the user is still engaged.
+
+        Speak your farewell message FIRST, then call this tool in the same response turn.
         """
-        End the current phone call.
-
-        This tool permanently ends the active call session. Use it only when
-        the conversation should stop and no further interaction with the
-        caller is required.
-
-        WHEN TO USE:
-        - The caller explicitly asks to end the call.
-        - The caller says goodbye or clearly indicates that they are finished.
-        - The agent has completed the requested task and the caller has no
-        remaining questions.
-        - The conversation has reached its intended conclusion.
-        - A workflow or business rule requires the call to terminate.
-
-        WHEN NOT TO USE:
-        - Do not end the call just because one question has been answered.
-        - Do not end the call if the caller appears to have another question.
-        - Do not end the call because the agent is waiting for a response.
-        - Do not end the call simply because the conversation is taking longer
-        than expected.
-        - Do not call this tool multiple times.
-
-        CALL CLOSING:
-        When appropriate, say a brief closing message before invoking this
-        tool, such as "Thank you for your time. Have a great day."
-
-        After calling this tool, do not generate another conversational
-        response or ask the caller another question. The call termination
-        process has been initiated.
-
-        Args:
-            reason: Briefly describe why the call is being ended. This is
-                used for logging, monitoring, and post-call analysis.
-                Examples:
-                - "Caller requested to end the call"
-                - "Caller said goodbye"
-                - "Task completed"
-                - "Conversation completed"
-                - "Caller stopped responding"
-
-        Returns:
-            A confirmation that the call termination request was accepted
-            and the call is being ended.
-        """
-        logger.info(f"Calling end call tool with call session {call_session}")
         if call_session is not None:
             call_session.end_reason = "user_ended"
 

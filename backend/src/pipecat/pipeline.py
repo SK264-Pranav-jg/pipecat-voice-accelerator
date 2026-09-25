@@ -32,6 +32,9 @@ from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
 # rnn filter 
 from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 
+# text aggregation mode 
+from pipecat.services.tts_service import TextAggregationMode
+
 # pipecat-vobiz import 
 from pipecat.serializers.vobiz import VobizFrameSerializer , parse_vobiz_start 
 
@@ -247,6 +250,7 @@ async def build_pipeline(
         tts = CartesiaTTSService(
             api_key=settings.cartesia_api_key.get_secret_value() if settings.cartesia_api_key else "",
             sample_rate=sample_rate ,
+            text_aggregation_mode=TextAggregationMode.TOKEN , 
             settings=CartesiaTTSSettings(
                 model="sonic-3",
                 voice=settings.cartesia_voice_id,
@@ -447,12 +451,12 @@ async def build_pipeline(
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport , client):
         logger.info("Client connected - starting the conversation")
-        greeting_instruction = {
-            "role" : "developer" ,
-            "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 10 words" ,
-        }
-        await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
-        # await worker.queue_frames([TTSSpeakFrame(f"Hello this is Pulse calling to assist you ! ")])
+        # greeting_instruction = {
+        #     "role" : "developer" ,
+        #     "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 10 words" ,
+        # }
+        # await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+        await worker.queue_frames([TTSSpeakFrame(f"Hello this is Jane how may I help you ?")])
 
     # closing connections 
     @transport.event_handler("on_client_disconnected")
@@ -514,6 +518,7 @@ async def build_pipeline(
             Generate a brief, natural acknowledgement to the caller's last statement.
             Sound like a warm, attentive human support representative.
 
+            Like you are searching for the info they are looking for 
             Do not mention tools, searches, databases, knowledge bases, fetching,
             checking, processing, or waiting. Do not answer the question or ask one.
 
