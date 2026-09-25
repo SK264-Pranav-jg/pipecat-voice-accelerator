@@ -49,9 +49,7 @@ class AWSConnectionManager:
             read_timeout=read_timeout,
         )
 
-    # -------------------------------------------------------------------------
     # Cached Client Singletons (Reused across all concurrent calls)
-    # -------------------------------------------------------------------------
 
     @classmethod
     @lru_cache(maxsize=1)
@@ -82,9 +80,7 @@ class AWSConnectionManager:
         return session.client("bedrock-agent", config=cls._get_boto_config(read_timeout=30))
 
 
-# -----------------------------------------------------------------------------
 # Module-level Accessor Functions
-# -----------------------------------------------------------------------------
 
 # client for s3 
 def get_s3():

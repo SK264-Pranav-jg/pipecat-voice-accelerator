@@ -309,6 +309,14 @@ def return_prompt() -> str:
 
     Do not repeat the closing statement.
 
+    Example of an appropriate response:
+
+    "Thanks for calling.Happy to help."
+    
+    Ask the caller if that is all and if they'd like to end the call always before ending the call when the conversation 
+    has come to a natural stopping point 
+
+    Speak the closing statement ONLY ONCE and then immediately call the end_call tool 
     The closing statement should be spoken only once before calling end_call.
 
     Do not ask another question after the caller has clearly indicated that

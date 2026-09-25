@@ -14,7 +14,7 @@ async def get_current_datetime(params : FunctionCallParams , timezone_str : str 
     """ 
     Tool to get the current date and time 
 
-    Use this tool when proposing or confirming meeting dates and times, or when
+    Use this tool when 
     the user asks about dates, days, or schedules.
 
     Never book a meeting for confirm anything related to temporal information without confirming the current date and time 

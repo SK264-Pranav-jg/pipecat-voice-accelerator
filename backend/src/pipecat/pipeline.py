@@ -83,6 +83,11 @@ from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 
 # latency visibility — enable_metrics=True alone collects nothing you can see
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
+from pipecat.observers.startup_timing_observer import StartupTimingObserver
+
+# frame processor 
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.frames.frames import AudioRawFrame
 
 # backend import
 from backend.src.pipecat.idle_handler import IdleHandler
@@ -151,7 +156,7 @@ transport_params = {
         # background/line noise filter — RNNoise internally resamples 8kHz <-> 48kHz,
         # so it works fine at telephony rates. Suppressing line hiss/comfort noise here
         # helps VAD get a clean speaking/not-speaking signal instead of flickering on noise.
-        # audio_in_filter=RNNoiseFilter(),
+        audio_in_filter=RNNoiseFilter(),
         # background ambience sound (change the path of the file ) 
         # audio_out_mixer=SoundfileMixer(
         #     sound_files={"office": str(AUDIO_DIR)},
@@ -191,6 +196,17 @@ async def build_pipeline(
         phone_number=phone_number,
     )
 
+    # frame processor to log audio frames 
+    class AudioDebugProcessor(FrameProcessor):
+        async def process_frame(self, frame, direction):
+            await super().process_frame(frame, direction)  
+            if isinstance(frame, AudioRawFrame):
+                logger.info(
+                    f"[audio-debug] got audio: {len(frame.audio)} bytes, "
+                    f"rate={frame.sample_rate}, channels={frame.num_channels}"
+                )
+            await self.push_frame(frame, direction)
+
     # idle handler instance
     idlehandler = IdleHandler(call_session)
 
@@ -209,11 +225,12 @@ async def build_pipeline(
     elif settings.stt_provider == "cartesia" : 
         logger.info("[pipeline] Cartiesia stt chosen")
         stt = CartesiaSTTService(
-           api_key=settings.cartesia_api_key.get_secret_value() if settings.cartesia_api_key else "",
-           sample_rate=sample_rate , 
+            api_key=settings.cartesia_api_key.get_secret_value() if settings.cartesia_api_key else "",
+            sample_rate=sample_rate , 
             settings=CartesiaSTTSettings(
-                model="ink-whisper" , 
-            )
+                model="ink-2" , 
+            ), 
+            ttfs_p99_latency=0.35
         )
         logger.info("[pipeline] cartesia stt initiated")
     
@@ -235,7 +252,6 @@ async def build_pipeline(
         logging.info("[pipeline] Sarvam TTS chosen") 
         tts = SarvamTTSService(
             api_key=settings.sarvam_api_key.get_secret_value() if settings.sarvam_api_key else "",
-            pause_frame_processing=True, 
             sample_rate=sample_rate, 
             settings=SarvamTTSSettings(
                 model="bulbul:v3" , 
@@ -287,7 +303,7 @@ async def build_pipeline(
         stop_secs=0.2,
         min_volume=0.6,
     )
-    silero_vad = SileroVADAnalyzer(params=vad_params)
+    silero_vad = SileroVADAnalyzer(sample_rate=8000,params=vad_params)
 
 
     # llm config in pipeline 
@@ -335,15 +351,7 @@ async def build_pipeline(
             user_turn_strategies=UserTurnStrategies(
                 stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
             ),
-            # watchdog: if VAD/transcription opens a turn but nothing resolves it (no STT
-            # result at all, from any provider, under real-world network/API jitter) within
-            # this many seconds, the framework force-closes the turn with no content and
-            # (silently, by default) skips inference entirely — that's the "bot just goes
-            # quiet, have to repeat myself" symptom, and it's not provider-specific since this
-            # watchdog lives above the STT layer. Framework default is 5.0s; raised a bit to
-            # give slow STT responses more room before giving up. on_user_turn_stop_timeout
-            # below is the other half of the fix — it turns "silently do nothing" into an
-            # actual spoken recovery instead of dead air.
+            # if the stt turns are not transcribed properly 
             user_turn_stop_timeout=5.0 ,
         ),
         # configuring assistant aggregator  
@@ -385,6 +393,16 @@ async def build_pipeline(
     # best reflects what the caller actually perceives as "responsiveness"
     latency_observer = UserBotLatencyObserver()
 
+    # startup timing observer 
+    startup_observer = StartupTimingObserver() 
+
+    @startup_observer.event_handler("on_startup_timing_report")
+    async def on_startup_timing_report(observer, report):
+        logger.info(f"Total startup: {report.total_duration_secs:.3f}s")
+        for timing in report.processor_timings:
+            logger.info(f"  {timing.processor_name}: setup={timing.setup_duration_secs:.3f}s")
+
+
     @latency_observer.event_handler("on_latency_measured")
     async def on_latency_measured(observer, latency):
         logger.info(f"[latency] call={call_id} turn response time: {latency * 1000:.0f}ms")
@@ -398,10 +416,12 @@ async def build_pipeline(
     worker = PipelineWorker(
         pipeline=pipeline ,
         name="voice accelerator pipeline worker" ,
-        observers=[latency_observer],
+        observers=[latency_observer,startup_observer],
         params=PipelineParams(
             enable_usage_metrics=True, 
             enable_metrics=True,
+            audio_in_sample_rate=8000, 
+            audio_out_sample_rate=8000,
         )
     )
 
@@ -448,15 +468,27 @@ async def build_pipeline(
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
 
     # add initial greeting soon as the call connects
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport , client):
-        logger.info("Client connected - starting the conversation")
+    # @transport.event_handler("on_client_connected")
+    # async def on_client_connected(transport , client):
+    #     logger.info("Client connected - starting the conversation")
+    #     # greeting_instruction = {
+    #     #     "role" : "developer" ,
+    #     #     "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 10 words" ,
+    #     # }
+    #     # await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
+    #     await worker.queue_frames([TTSSpeakFrame(f"Hello this is Jane how may I help you ?")])
+
+    # initial greeting as soon as the call connects 
+    @worker.event_handler("on_pipeline_started") 
+    async def on_pipeline_started(worker,frame): 
+        logger.info("Pipeline started - initial greeting playing")
         # greeting_instruction = {
         #     "role" : "developer" ,
         #     "content" : "Say Hello to the user , and introduce yourself , make it sound human , Keep it short under 10 words" ,
         # }
         # await worker.queue_frames([LLMMessagesAppendFrame([greeting_instruction],run_llm=True)])
         await worker.queue_frames([TTSSpeakFrame(f"Hello this is Jane how may I help you ?")])
+
 
     # closing connections 
     @transport.event_handler("on_client_disconnected")

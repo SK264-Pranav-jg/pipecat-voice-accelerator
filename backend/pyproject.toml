@@ -92,7 +92,7 @@ dependencies = [
     "opencv-python-headless==4.14.0.94",
     "packaging==26.3",
     "pillow==12.3.0",
-    "pipecat-ai[aws,cartesia,deepgram,elevenlabs,google,rnnoise,sarvam,webrtc]==1.11.0",
+    "pipecat-ai[aws,cartesia,deepgram,elevenlabs,google,rnnoise,sarvam,soxr,webrtc]==1.11.0",
     "pipecat-vobiz==0.0.3",
     "progress==1.6.1",
     "propcache==0.5.2",

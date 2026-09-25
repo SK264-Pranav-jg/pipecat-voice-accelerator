@@ -455,7 +455,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = "==4.14.0.94" },
     { name = "packaging", specifier = "==26.3" },
     { name = "pillow", specifier = "==12.3.0" },
-    { name = "pipecat-ai", extras = ["aws", "cartesia", "deepgram", "elevenlabs", "google", "rnnoise", "sarvam", "webrtc"], specifier = "==1.11.0" },
+    { name = "pipecat-ai", extras = ["aws", "cartesia", "deepgram", "elevenlabs", "google", "rnnoise", "sarvam", "soxr", "webrtc"], specifier = "==1.11.0" },
     { name = "pipecat-vobiz", specifier = "==0.0.3" },
     { name = "progress", specifier = "==1.6.1" },
     { name = "propcache", specifier = "==0.5.2" },
