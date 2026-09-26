@@ -46,23 +46,31 @@ def _get_vectorstore() -> PGVector:
 
 @tool_options(cancel_on_interruption=True)
 async def query_knowledge_base(params: FunctionCallParams, query: str):
-    """Search the knowledge base to answer a user's question.
+    """Performs semantic vector search against the organization's knowledge base.
 
-    Use this tool whenever the user asks a question that requires looking up
-    specific information from the organisation's knowledge base — product
-    details, policies, FAQs, pricing, procedures, etc.
+    Use this tool whenever the caller asks for company-specific, product-specific,
+    or policy-related facts, including:
+    - Products, features, tier comparisons, and technical specifications.
+    - Pricing, billing terms, discounts, and payment methods.
+    - Company policies, refunds, cancellations, warranties, and guarantees.
+    - Operating hours, office addresses, contact channels, and support procedures.
 
-    Pass the user's question (or a concise, search-friendly rephrasing of it)
-    as the query. Prefer noun phrases over full sentences for better retrieval.
+    QUERY FORMULATION RULES:
+    1. Resolve Pronouns & Context: Substitute vague pronouns ("it", "that", "they") with the
+       specific subject discussed earlier (e.g., "enterprise plan storage limit" instead
+       of "how much storage does it have").
+    2. Use Keyword-Dense Phrases: Strip conversational pleasantries and filler (e.g., turn
+       "Could you please tell me if you guys have an SLA?" into "service level agreement SLA terms").
+    3. Be Specific: Prefer focused topics over broad generic searches for higher similarity accuracy.
 
-    Do NOT call this tool for:
-    - General chitchat or greetings
-    - Questions you can already answer confidently from conversation context
-    - Temporal queries (use get_current_datetime instead)
-    - End-of-call handling (use dynamic_end_call instead)
+    DO NOT call this tool for:
+    - Casual conversation, pleasantries, or acknowledgements ("hello", "thanks", "sounds good").
+    - Current date, time, or scheduling questions (use get_current_datetime instead).
+    - Concluding or disconnecting the conversation (use end_call instead).
+    - Information the caller already stated or that was already established in the active session.
 
     Args:
-        query: The user's question or topic to search for in the knowledge base.
+        query: Concise, search-optimized search phrase or question targeting the specific information needed.
     """
 
     logger.info(f"query_knowledge_base tool with query: {query}")

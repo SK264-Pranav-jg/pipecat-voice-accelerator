@@ -177,7 +177,14 @@ async def build_pipeline(
     phone_number : str | None = None ,
 ) -> PipelineWorker:
 
-    # derive sample rate from transport params
+    # derive sample rate from transport params — single source of truth for
+    # every rate-sensitive component below (STT, TTS, VAD, PipelineParams).
+    # webrtc runs at 16kHz; vobiz telephony runs at 8kHz (negotiated per-call
+    # from Vobiz's `start` event in app.py). Hardcoding any of these
+    # components to one rate breaks the other transport — e.g. Silero VAD
+    # fed 16kHz audio while initialized for 8kHz mistimes start/stop
+    # detection, which can spuriously re-trigger interruptions and drop
+    # already-queued transcripts.
     # TransportParams exposes audio_in_sample_rate; FastAPIWebsocketParams inherits it.
     sample_rate: int = getattr(transport._params, "audio_out_sample_rate", 16000)
 
@@ -274,10 +281,11 @@ async def build_pipeline(
         )
         logging.info("[pipeline] cartesia tts initiated")
     
-    elif settings.tts_provider == "deepgram": 
+    elif settings.tts_provider == "deepgram":
         logging.info("[pipeline] deepgram tts chosen")
         tts = DeepgramTTSService(
             api_key=settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else "",
+            sample_rate=sample_rate,
             settings=DeepgramTTSSettings(
                 voice="aura-2-helena-en",
             ),
@@ -296,14 +304,17 @@ async def build_pipeline(
             ), 
         )
     
-    # silero vad builder 
+    # silero vad builder — sample_rate must match the transport's negotiated
+    # rate (Silero only supports 8000/16000); passing a fixed value here
+    # would silently override whatever the framework tries to apply from the
+    # transport at setup, mistiming VAD start/stop detection on that transport.
     vad_params = VADParams(
         confidence=0.7,
         start_secs=0.2,
         stop_secs=0.2,
         min_volume=0.6,
     )
-    silero_vad = SileroVADAnalyzer(sample_rate=8000,params=vad_params)
+    silero_vad = SileroVADAnalyzer(sample_rate=sample_rate, params=vad_params)
 
 
     # llm config in pipeline 
@@ -313,11 +324,15 @@ async def build_pipeline(
         aws_session_token=settings.aws_session_token.get_secret_value() if settings.aws_session_token else None,
         aws_region=settings.aws_region or "ap-south-1",
         settings=AWSBedrockLLMService.Settings(
-            model=settings.agent_model_id or "", 
-            # enabling prompt caching for models that support it (claude models) 
+            model=settings.agent_model_id or "",
+            # enabling prompt caching for models that support it (claude models) —
+            # only turn this on if MAIN_MODEL_ID is a Claude model on Bedrock; the
+            # cachePoint field pipecat adds is Anthropic-specific and unconditional
+            # (no model check), so sending it to a non-Claude model (e.g. the GLM
+            # model currently configured) will fail every LLM call.
             # enable_prompt_caching=True,
-            # system prompt loaded from prompts module 
-            system_instruction=return_prompt() , 
+            # system prompt loaded from prompts module
+            system_instruction=return_prompt() ,
             max_tokens=100,
         )
     )
@@ -349,7 +364,7 @@ async def build_pipeline(
             ],
             # for lower and more predictable turn-taking
             user_turn_strategies=UserTurnStrategies(
-                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)]
             ),
             # if the stt turns are not transcribed properly 
             user_turn_stop_timeout=5.0 ,
@@ -418,10 +433,10 @@ async def build_pipeline(
         name="voice accelerator pipeline worker" ,
         observers=[latency_observer,startup_observer],
         params=PipelineParams(
-            enable_usage_metrics=True, 
+            enable_usage_metrics=True,
             enable_metrics=True,
-            audio_in_sample_rate=8000, 
-            audio_out_sample_rate=8000,
+            audio_in_sample_rate=sample_rate,
+            audio_out_sample_rate=sample_rate,
         )
     )
 
@@ -463,7 +478,7 @@ async def build_pipeline(
     async def on_user_turn_stop_timeout(aggregator):
         message = {
             "role": "developer",
-            "content": "You didn't catch what the caller just said — their speech never came through. Briefly and politely ask them to repeat themselves.",
+            "content": "You did not catch what the caller just said because their audio was unclear. In one brief, polite sentence under 10 words, ask them to please repeat themselves.",
         }
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
 
@@ -540,21 +555,27 @@ async def build_pipeline(
         ])
 
         # run_inference() falls back to the service's own system_instruction (the
-        # full Pulse persona prompt) when none is passed here — and Bedrock's
+        # full persona prompt) when none is passed here — and Bedrock's
         # adapter discards any system message already inside ack_context in favor
         # of that fallback. Passing it explicitly is the only way to actually use
         # this short acknowledgement instruction instead.
         acknowledgement = await service.run_inference(
             ack_context,
             system_instruction="""
-            Generate a brief, natural acknowledgement to the caller's last statement.
+            Generate a brief, natural spoken acknowledgment to let the caller know you are looking up their request.
             Sound like a warm, attentive human support representative.
 
-            Like you are searching for the info they are looking for 
-            Do not mention tools, searches, databases, knowledge bases, fetching,
-            checking, processing, or waiting. Do not answer the question or ask one.
+            Good examples:
+            - "Sure thing, let me find that for you."
+            - "I'd be glad to look that up."
+            - "Sure, looking into that for you now."
+            - "One moment, let me check that."
 
-            Use 3-8 words, vary the phrasing naturally, and return only the acknowledgement.
+            Rules:
+            - Use 3 to 7 words only.
+            - Do not answer the question or ask a question.
+            - Do not mention tools, databases, or systems.
+            - Return ONLY the spoken words with no quotes.
             """, 
         )
         if acknowledgement:

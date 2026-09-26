@@ -10,21 +10,25 @@ import json
 from datetime import datetime  
 from pipecat.services.llm_service import FunctionCallParams 
 
-async def get_current_datetime(params : FunctionCallParams , timezone_str : str = "Asia/Kolkata"):  
-    """ 
-    Tool to get the current date and time 
+async def get_current_datetime(params: FunctionCallParams, timezone_str: str = "Asia/Kolkata"):
+    """Retrieves the current date, time, day of the week, and timezone.
 
-    Use this tool when 
-    the user asks about dates, days, or schedules.
+    Always use this tool whenever temporal context is required, such as:
+    - Answering questions about today's date, current time, or current day of the week.
+    - Resolving relative time expressions (e.g., "today", "tomorrow", "yesterday",
+      "this afternoon", "next Monday").
+    - Checking business hours, scheduling callbacks, booking meetings, or discussing deadlines.
 
-    Never book a meeting for confirm anything related to temporal information without confirming the current date and time 
-    from this tool 
+    Do not guess or assume the current date or time from training data; always check
+    with this tool first for accurate temporal reasoning.
 
-    Args : 
-        timezone_str : str = Gets the current timezone of the person the agent is calling 
-    
-    Returns : 
-        A dictionary with the current time and date 
+    Args:
+        timezone_str: Standard IANA timezone string (e.g., "Asia/Kolkata", "America/New_York",
+                      "UTC", "Europe/London"). Defaults to "Asia/Kolkata".
+
+    Returns:
+        JSON object containing ISO datetime, formatted date, 12-hour time with AM/PM,
+        day of the week, timezone, and timezone abbreviation.
     """ 
 
     try : 
