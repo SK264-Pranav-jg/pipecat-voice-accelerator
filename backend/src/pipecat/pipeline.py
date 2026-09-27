@@ -69,6 +69,7 @@ from pipecat.services.sarvam.tts import SarvamTTSService , SarvamTTSSettings
 # deepgram services import 
 from pipecat.services.deepgram.stt import DeepgramSTTService , DeepgramSTTSettings 
 from pipecat.services.deepgram.tts import DeepgramTTSService , DeepgramTTSSettings 
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService , DeepgramFluxTTSSettings 
 
 # VAD imports
 # Silero vad only supports 16khz and 8khz so adjust accordingly 
@@ -241,6 +242,18 @@ async def build_pipeline(
         )
         logger.info("[pipeline] cartesia stt initiated")
     
+    elif settings.stt_provider == "deepgram": 
+        logger.info("[pipeline] deepgram stt chosen")
+        stt = DeepgramSTTService(
+            api_key=settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else "" ,
+            sample_rate=sample_rate , 
+            settings=DeepgramSTTSettings(
+                model="nova-2" , 
+            ),
+            ttfs_p99_latency=0.35
+        )   
+        logger.info("[pipeline] deepgram stt initiated")
+    
     else: 
         logger.info("[pipeline] elevenlabs stt chosen")
         stt = ElevenLabsRealtimeSTTService(
@@ -283,12 +296,14 @@ async def build_pipeline(
     
     elif settings.tts_provider == "deepgram":
         logging.info("[pipeline] deepgram tts chosen")
-        tts = DeepgramTTSService(
-            api_key=settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else "",
-            sample_rate=sample_rate,
-            settings=DeepgramTTSSettings(
-                voice="aura-2-helena-en",
-            ),
+        tts = DeepgramFluxTTSService(
+            sample_rate=sample_rate , 
+            api_key=settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else "" ,
+            settings=DeepgramFluxTTSSettings( 
+                voice="flux-meena-en", 
+                speed=1.05 , 
+                expressivity=1, 
+            )
         )
         logging.info("[pipeline] deepgram tts initiated")
     
