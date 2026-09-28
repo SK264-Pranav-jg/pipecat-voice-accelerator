@@ -16,7 +16,7 @@ def create_end_call_tool(call_session=None):
     """Build the end-call tool bound to this call's session (for end-reason tracking)."""
 
     @tool_options(cancel_on_interruption=False)
-    async def dynamic_end_call(params : FunctionCallParams):
+    async def end_call(params : FunctionCallParams):
         """
         End the current phone call.
 
@@ -47,16 +47,6 @@ def create_end_call_tool(call_session=None):
         Call this tool at most once per call. Never call it again after it has
         already been invoked, and never speak a second farewell.
 
-        Args:
-            reason: Briefly describe why the call is being ended. This is
-                used for logging, monitoring, and post-call analysis.
-                Examples:
-                - "Caller requested to end the call"
-                - "Caller said goodbye"
-                - "Task completed"
-                - "Conversation completed"
-                - "Caller stopped responding"
-
         Returns:
             A confirmation that the call termination request was accepted
             and the call is being ended.
@@ -76,7 +66,7 @@ def create_end_call_tool(call_session=None):
 
         await params.llm.push_frame(EndWorkerFrame())
 
-    return dynamic_end_call
+    return end_call
 
 
 

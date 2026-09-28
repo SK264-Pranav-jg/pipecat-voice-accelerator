@@ -40,7 +40,7 @@ class IdleHandler:
             # third attempt so end the call gracefully
             message = {
                 "role": "developer",
-                "content": "The caller has remained silent. Deliver a single, brief farewell thanking them for calling and saying goodbye (e.g. 'Since I haven't heard from you, I'll go ahead and end the call. Thanks for calling Jane, have a wonderful day!'). Keep it under 20 words.",
+                "content": "The caller has remained silent. Deliver a single, brief farewell thanking them for calling and saying goodbye (e.g. 'Since I haven't heard from you, I'll go ahead and end the call. Thanks for calling, have a wonderful day'). Keep it under 20 words.",
             }
             if self._call_session is not None:
                 self._call_session.end_reason = "idle_timeout"

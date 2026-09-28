@@ -316,6 +316,7 @@ async def build_pipeline(
         tts = ElevenLabsTTSService(
             api_key=settings.elevenlabs_api_key.get_secret_value() if settings.elevenlabs_api_key else "", 
             sample_rate=sample_rate , 
+            text_aggregation_mode=TextAggregationMode.TOKEN, 
             settings=ElevenLabsTTSSettings(
                 voice=settings.elevenlabs_voice_id or "", 
                 speed=1.0, 
@@ -346,7 +347,7 @@ async def build_pipeline(
             # enable_prompt_caching=True,
             # system prompt loaded from prompts module
             system_instruction=return_prompt() ,
-            max_tokens=100,
+            max_tokens=300,
         )
     )
 
@@ -377,7 +378,7 @@ async def build_pipeline(
             ],
             # for lower and more predictable turn-taking
             user_turn_strategies=UserTurnStrategies(
-                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.3)]
             ),
             # if the stt turns are not transcribed properly 
             user_turn_stop_timeout=5.0 ,
@@ -566,11 +567,6 @@ async def build_pipeline(
             }
         ])
 
-        # run_inference() falls back to the service's own system_instruction (the
-        # full persona prompt) when none is passed here — and Bedrock's
-        # adapter discards any system message already inside ack_context in favor
-        # of that fallback. Passing it explicitly is the only way to actually use
-        # this short acknowledgement instruction instead.
         acknowledgement = await service.run_inference(
             ack_context,
             system_instruction="""
