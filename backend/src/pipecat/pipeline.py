@@ -194,7 +194,6 @@ async def build_pipeline(
     sample_rate: int = getattr(transport._params, "audio_out_sample_rate", 16000)
 
     # per-call runtime state, shared with the idle handler and the end-call tool
-    # so whichever mechanism ends the call can record why.
     call_session = CallSession(call_id=call_id)
 
     # call metadata row — the transcript rows below are linked to this via db_call_id
@@ -209,6 +208,7 @@ async def build_pipeline(
     )
 
     # frame processor to log audio frames 
+    # debugging code part , add it in the list of Pipeline[] if needed to get the audio bytes 
     class AudioDebugProcessor(FrameProcessor):
         async def process_frame(self, frame, direction):
             await super().process_frame(frame, direction)  
@@ -324,9 +324,6 @@ async def build_pipeline(
         )
     
     # silero vad builder — sample_rate must match the transport's negotiated
-    # rate (Silero only supports 8000/16000); passing a fixed value here
-    # would silently override whatever the framework tries to apply from the
-    # transport at setup, mistiming VAD start/stop detection on that transport.
     vad_params = VADParams(
         confidence=0.7,
         start_secs=0.2,
@@ -345,10 +342,7 @@ async def build_pipeline(
         settings=AWSBedrockLLMService.Settings(
             model=settings.agent_model_id or "",
             # enabling prompt caching for models that support it (claude models) —
-            # only turn this on if MAIN_MODEL_ID is a Claude model on Bedrock; the
-            # cachePoint field pipecat adds is Anthropic-specific and unconditional
-            # (no model check), so sending it to a non-Claude model (e.g. the GLM
-            # model currently configured) will fail every LLM call.
+            # only turn this on if MAIN_MODEL_ID is a Claude model or nova models on Bedrock 
             # enable_prompt_caching=True,
             # system prompt loaded from prompts module
             system_instruction=return_prompt() ,
@@ -460,7 +454,7 @@ async def build_pipeline(
     )
 
     # service/provider errors (bad API keys, expired credentials, reconnect
-    # failures, etc.) are relayed to the client over the data channel but are
+    # failures, etc.) are sent to the client over the data channel but are
     # not printed here by default — without this handler, this terminal stays
     # silent even while the browser shows real errors.
     @worker.event_handler("on_pipeline_error")
@@ -490,9 +484,7 @@ async def build_pipeline(
     # fires when a turn opened (VAD/transcription said the caller started talking) but no
     # stop strategy ever resolved it within user_turn_stop_timeout — most commonly, STT never
     # produced even an interim transcript in time. Left unhandled, the framework silently
-    # drops the turn with zero content and never calls the LLM: the caller spoke, got no
-    # response, and has no idea why. This turns that dead silence into an actual spoken
-    # recovery instead.
+    # drops the turn with zero content and never calls the LLM a.k.a bot got stuck . 
     @user_aggregator.event_handler("on_user_turn_stop_timeout")
     async def on_user_turn_stop_timeout(aggregator):
         message = {
@@ -502,6 +494,7 @@ async def build_pipeline(
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
 
     # add initial greeting soon as the call connects
+    # this can also be added (default way but had some queuing audio issues and audio jitters)
     # @transport.event_handler("on_client_connected")
     # async def on_client_connected(transport , client):
     #     logger.info("Client connected - starting the conversation")
@@ -540,9 +533,9 @@ async def build_pipeline(
             asyncio.create_task(
                 add_message(db_call_id, call_session.next_sequence(), "user", message.content)
             )
-            logger.info("-------------------------")
+            logger.info("----------------------------")
             logger.info(f"User said : {message.content}")
-            logger.info("-------------------------")
+            logger.info("----------------------------")
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
