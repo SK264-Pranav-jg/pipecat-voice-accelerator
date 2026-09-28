@@ -82,6 +82,10 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 
+# local smart turn 
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3 
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy 
+
 # latency visibility — enable_metrics=True alone collects nothing you can see
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.observers.startup_timing_observer import StartupTimingObserver
@@ -250,7 +254,7 @@ async def build_pipeline(
             settings=DeepgramSTTSettings(
                 model="nova-2" , 
             ),
-            ttfs_p99_latency=0.35
+            ttfs_p99_latency=0.35, 
         )   
         logger.info("[pipeline] deepgram stt initiated")
     
@@ -379,7 +383,7 @@ async def build_pipeline(
             ],
             # for lower and more predictable turn-taking
             user_turn_strategies=UserTurnStrategies(
-                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)]
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.4)]
             ),
             # if the stt turns are not transcribed properly 
             user_turn_stop_timeout=5.0 ,
