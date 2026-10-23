@@ -17,12 +17,35 @@ from langchain_aws import BedrockEmbeddings
 from langchain_postgres import PGVector
 
 from pipecat.adapters.schemas.direct_function import tool_options
+from pipecat.frames.frames import TTSSpeakFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
 from backend.src.config.aws import AWSConnectionManager
 from backend.src.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+# cap on the acknowledgement inference — the answer can't start until the
+# acknowledgement is pushed, so a hung Bedrock call must not stall the turn
+_ACK_TIMEOUT_SECS = 3.0
+
+_ACK_SYSTEM_INSTRUCTION = """
+Generate a brief, natural spoken acknowledgment to let the caller know you are looking up their request.
+Sound like a warm, attentive human support representative.
+
+Good examples:
+- "Sure thing, let me find that for you."
+- "I'd be glad to look that up."
+- "Sure, looking into that for you now."
+- "One moment, let me check that."
+
+Rules:
+- Use 3 to 7 words only.
+- Do not answer the question or ask a question.
+- Do not mention tools, databases, or systems.
+- Return ONLY the spoken words with no quotes.
+"""
 
 
 @lru_cache(maxsize=1)
@@ -42,6 +65,33 @@ def _get_vectorstore() -> PGVector:
         connection=settings.pgvector_url,   # psycopg3 URL, not asyncpg
         use_jsonb=True,
     )
+
+
+async def _speak_acknowledgement(params: FunctionCallParams, query: str) -> None:
+    """Generate a short spoken acknowledgement and push it ahead of the tool result.
+
+    Pushed downstream from the LLM before result_callback, so TTS is guaranteed
+    to speak it before the answer generated from this tool's result. Failures
+    are swallowed — a missing acknowledgement must never block the lookup.
+    """
+    ack_context = LLMContext(messages=[
+        {"role": "user", "content": f"The caller asked about: {query}"},
+    ])
+    try:
+        acknowledgement = await asyncio.wait_for(
+            params.llm.run_inference(
+                ack_context,
+                max_tokens=30,
+                system_instruction=_ACK_SYSTEM_INSTRUCTION,
+            ),
+            timeout=_ACK_TIMEOUT_SECS,
+        )
+    except Exception as exc:
+        logger.warning(f"[rag] acknowledgement skipped ({type(exc).__name__}) for query='{query}'")
+        return
+
+    if acknowledgement:
+        await params.llm.push_frame(TTSSpeakFrame(acknowledgement.strip(), append_to_context=False))
 
 
 @tool_options(cancel_on_interruption=True)
@@ -75,15 +125,18 @@ async def query_knowledge_base(params: FunctionCallParams, query: str):
 
     logger.info(f"query_knowledge_base tool with query: {query}")
     try:
-        vectorstore = _get_vectorstore()
-
         # similarity_search is synchronous (psycopg3 connection) — run it in
         # a thread executor so it doesn't block the pipecat asyncio event loop.
-        loop = asyncio.get_event_loop()
-        docs = await loop.run_in_executor(
+        # Started before the acknowledgement so the two overlap: the turn waits
+        # for whichever is slower, not both back to back.
+        loop = asyncio.get_running_loop()
+        search = loop.run_in_executor(
             None,
-            lambda: vectorstore.similarity_search(query, k=settings.kb_top_k),
+            lambda: _get_vectorstore().similarity_search(query, k=settings.kb_top_k),
         )
+
+        await _speak_acknowledgement(params, query)
+        docs = await search
 
         if not docs:
             await params.result_callback(json.dumps({

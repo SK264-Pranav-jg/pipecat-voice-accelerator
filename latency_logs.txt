@@ -1,0 +1,13 @@
+# Native Pipecat Agentic Framework 
+
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline: [latency] call=SmallWebRTCConnection#0-feed98582e754ac4a5b0f18cbe371d88 turn response time: 1086ms
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.200s  endpointing wait     [config: VAD stop_secs]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.200s  transcription        [DeepgramSTTService#0]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.111s  turn detection       [config: user turn strategies]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.372s  LLM inference        [AWSBedrockLLMService#0]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.201s  speech synthesis     [ElevenLabsTTSService#0]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  0.002s  pipeline             [pipecat]
+2026-10-23 10:37:41,975 INFO backend.src.pipecat.pipeline:  1.086s  TOTAL
+
+
+

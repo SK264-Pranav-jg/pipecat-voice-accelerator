@@ -554,40 +554,9 @@ async def build_pipeline(
             logger.info(f"Assistant said : {message.content}")
             logger.info("-------------------------")
         
-    @llm.event_handler("on_function_calls_started")
-    async def on_function_calls_started(service,function_calls): 
-        func_name = function_calls[0].function_name 
-        if func_name != 'query_knowledge_base':
-            return 
-        
-        ack_context = LLMContext(messages=[
-            {
-                "role" : "user" ,
-                "content" : f"Function being called {func_name}"
-            }
-        ])
-
-        acknowledgement = await service.run_inference(
-            ack_context,
-            system_instruction="""
-            Generate a brief, natural spoken acknowledgment to let the caller know you are looking up their request.
-            Sound like a warm, attentive human support representative.
-
-            Good examples:
-            - "Sure thing, let me find that for you."
-            - "I'd be glad to look that up."
-            - "Sure, looking into that for you now."
-            - "One moment, let me check that."
-
-            Rules:
-            - Use 3 to 7 words only.
-            - Do not answer the question or ask a question.
-            - Do not mention tools, databases, or systems.
-            - Return ONLY the spoken words with no quotes.
-            """, 
-        )
-        if acknowledgement:
-            await tts.queue_frame(TTSSpeakFrame(acknowledgement,append_to_context=False))
+    # the "let me check that" acknowledgement for knowledge-base lookups lives
+    # inside query_knowledge_base itself (see retrieval.py) so it is ordered
+    # ahead of the answer instead of racing it from an event handler
 
     # single place the call is marked ended, regardless of what triggered it —
     # the end-call tool, the idle handler's final timeout, or the client
