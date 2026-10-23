@@ -1,6 +1,6 @@
 # Test client
 
-Vanilla HTML/JS page for testing the WebRTC (browser) call path against
+Vanilla HTML/JS page for testing the bot: browser calls over WebRTC against
 `POST /api/offer`, with a live transcript panel. Uses Pipecat's own client SDK
 (`@pipecat-ai/client-js` + `@pipecat-ai/small-webrtc-transport`, loaded from
 the esm.sh CDN as native ES modules — no `npm install` or build step) instead
@@ -78,9 +78,12 @@ Check, in this order:
 
 ## Notes
 
-- Only tests the WebRTC/browser path (`/api/offer`). The telephony path (`/ws`,
-  Vobiz) needs a real phone call and isn't something a browser client can
-  exercise.
+- The **WebRTC** tab talks to the bot in the browser (`/api/offer`). The
+  **Phone (Vobiz)** tab only *places and hangs up* an outbound call
+  (`POST /vobiz/calls`, `POST /vobiz/calls/{call_id}/hangup`); the call's audio
+  goes phone ⇄ Vobiz ⇄ `/ws`, so it has no live transcript here — it's stored in
+  Postgres. Phone calls need the Vobiz env vars and a public `WEBHOOK_ENDPOINT`
+  (see the root README).
 - No ICE servers are configured — fine for same-machine/same-LAN testing. Add
   a STUN entry in `main.js` (`new SmallWebRTCTransport({ iceServers: [{ urls:
   "stun:stun.l.google.com:19302" }] })`) if testing across networks.
