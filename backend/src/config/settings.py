@@ -2,8 +2,8 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
-from pydantic import Field, SecretStr , AliasChoices , ValidationInfo , computed_field , field_validator
+from typing import Literal, Optional
+from pydantic import Field, SecretStr , AliasChoices , ValidationInfo , computed_field , field_validator , model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # place the .env file inside the backend folder of the project 
@@ -111,7 +111,14 @@ class Settings(BaseSettings):
         default=10, description="Max connections allowed beyond db_pool_size under load"
     )
 
-    # RAG / knowledge base (pgvector, embedded via AWS Bedrock)
+    # RAG / knowledge base — which backend the query_knowledge_base tool uses
+    kb_provider: Literal["pgvector", "aws_kb"] = Field(
+        default="pgvector",
+        description="Knowledge-base backend: 'pgvector' (self-hosted, see helpers/ingest.py) "
+                    "or 'aws_kb' (managed Amazon Bedrock Knowledge Base, see ai/tools/aws_kb.py)",
+    )
+
+    # pgvector backend (embedded via AWS Bedrock)
     kb_embedding_model_id: str = Field(
         default="amazon.titan-embed-text-v2:0",
         description="Bedrock model id used to embed knowledge-base chunks and queries",
@@ -123,7 +130,24 @@ class Settings(BaseSettings):
         default="kb_chunks", description="Postgres table (pgvector) storing embedded knowledge-base chunks"
     )
     kb_top_k: int = Field(
-        default=4, description="Number of chunks the retrieval tool returns per query"
+        default=4, description="Number of chunks the retrieval tool returns per query (both backends)"
+    )
+
+    # Amazon Bedrock Knowledge Base backend (used when kb_provider == "aws_kb").
+    # KB_TOP_K above is shared. The KB must live in aws_region; it's queried with
+    # the shared AWS session.
+    aws_kb_id: Optional[str] = Field(
+        default=None, description="Bedrock Knowledge Base ID (e.g. ABCDEFGHIJ)"
+    )
+    aws_kb_data_source_ids: Optional[str] = Field(
+        default=None,
+        description="Optional comma-separated data source IDs to restrict retrieval to. "
+                    "Unset searches every data source in the KB",
+    )
+    aws_kb_search_type: Optional[Literal["HYBRID", "SEMANTIC"]] = Field(
+        default=None,
+        description="Override the KB's search type. Unset lets Bedrock choose; HYBRID "
+                    "is only supported by some vector stores (e.g. OpenSearch Serverless)",
     )
 
     def get_public_url(self) -> str:
@@ -162,6 +186,21 @@ class Settings(BaseSettings):
         if value.startswith("postgres://"):
             return value.replace("postgres://", "postgresql+asyncpg://", 1)
         return value
+
+    @field_validator("aws_kb_id", "aws_kb_search_type", "aws_kb_data_source_ids", mode="before")
+    @classmethod
+    def _blank_as_unset(cls, value):
+        """Treat a blank line in .env (e.g. AWS_KB_SEARCH_TYPE=) as unset."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _require_aws_kb_id(self) -> "Settings":
+        """Fail at startup rather than on the first caller question."""
+        if self.kb_provider == "aws_kb" and not self.aws_kb_id:
+            raise ValueError("KB_PROVIDER=aws_kb requires AWS_KB_ID to be set")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,

@@ -103,7 +103,10 @@ from backend.src.ai.prompts.prompt_main import return_prompt
 # tool imports
 from backend.src.ai.tools.current import get_current_datetime
 from backend.src.ai.tools.end_call import create_end_call_tool
-from backend.src.ai.tools.retrieval import query_knowledge_base 
+# both knowledge-base tools expose the same tool name (query_knowledge_base);
+# KB_PROVIDER picks which one is registered below
+from backend.src.ai.tools.retrieval import query_knowledge_base as query_pgvector_knowledge_base
+from backend.src.ai.tools.aws_kb import query_knowledge_base as query_aws_knowledge_base
 
 # db imports (call metadata + transcript persistence)
 from backend.src.db.repository import create_call, add_message, end_call
@@ -361,6 +364,14 @@ async def build_pipeline(
 
     #     )
     # )
+
+    # knowledge-base backend — pgvector (default) or Amazon Bedrock Knowledge Base
+    if settings.kb_provider == "aws_kb":
+        logger.info("[pipeline] aws knowledge base retrieval chosen")
+        query_knowledge_base = query_aws_knowledge_base
+    else:
+        logger.info("[pipeline] pgvector retrieval chosen")
+        query_knowledge_base = query_pgvector_knowledge_base
 
     # this part holds the short term memmory of the conversation in-memory
     conversation_context = LLMContext(tools=[get_current_datetime , create_end_call_tool(call_session), query_knowledge_base])
